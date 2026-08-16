@@ -18,6 +18,10 @@ import { cn } from "@/lib/utils";
 import { MasterContractStatus } from "@/components/layout/MasterContractStatus";
 import { TradingModeSwitch } from "@/components/layout/TradingModeSwitch";
 import { SandboxBanner } from "@/components/layout/SandboxBanner";
+import {
+  BrokerConnectionStatus,
+  BrokerDisconnectedBanner,
+} from "@/components/layout/BrokerConnectionStatus";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // ---------------------------------------------------------------------------
@@ -307,8 +311,7 @@ function ProfileMenu({ onLogout }: { onLogout: () => void }) {
               </p>
             )}
             {user?.broker && (
-              <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
                 {user.broker}
               </p>
             )}
@@ -526,6 +529,8 @@ export function AppLayout() {
             <div className="hidden h-6 w-px bg-border md:block" />
             <TradingModeSwitch />
             <div className="hidden h-6 w-px bg-border sm:block" />
+            <BrokerConnectionStatus />
+            <div className="hidden h-6 w-px bg-border sm:block" />
             <div className="hidden sm:block">
               <MasterContractStatus />
             </div>
@@ -537,6 +542,7 @@ export function AppLayout() {
 
       {/* Sandbox mode banner */}
       <SandboxBanner />
+      <BrokerDisconnectedBanner />
 
       {/* Page content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-6">

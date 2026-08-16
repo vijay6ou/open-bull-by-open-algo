@@ -1,15 +1,18 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from backend.dependencies import get_db, get_current_user
+from backend.dependencies import get_db, get_current_user, _broker_config_dict
 from backend.models.user import User
+from backend.models.auth import BrokerAuth
 from backend.models.broker_config import BrokerConfig
 from backend.schemas.broker import BrokerConfigCreate, BrokerConfigResponse, BrokerListItem
 from backend.security import encrypt_value, decrypt_value
+from backend.services.broker_status_service import ping_broker
 from backend.utils.plugin_loader import get_all_plugins
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,54 @@ async def list_brokers(
             oauth_type=info.get("oauth_type", ""),
         ))
     return brokers
+
+
+@router.get("/status")
+async def broker_connection_status(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Live ping the active broker session. Always 200 so the UI can show Connected vs Disconnected."""
+    broker_name = getattr(user, "_broker", None)
+    if not broker_name:
+        cfg_result = await db.execute(
+            select(BrokerConfig).where(
+                BrokerConfig.user_id == user.id,
+                BrokerConfig.is_active == True,
+            )
+        )
+        active_config = cfg_result.scalar_one_or_none()
+        if active_config:
+            broker_name = active_config.broker_name
+
+    if not broker_name:
+        return ping_broker(None, None)
+
+    auth_result = await db.execute(
+        select(BrokerAuth).where(
+            BrokerAuth.user_id == user.id,
+            BrokerAuth.broker_name == broker_name,
+            BrokerAuth.is_revoked == False,
+        )
+    )
+    broker_auth = auth_result.scalar_one_or_none()
+    if not broker_auth:
+        return ping_broker(None, broker_name)
+
+    cfg_result = await db.execute(
+        select(BrokerConfig).where(
+            BrokerConfig.user_id == user.id,
+            BrokerConfig.broker_name == broker_name,
+        )
+    )
+    broker_cfg = cfg_result.scalar_one_or_none()
+    config = _broker_config_dict(broker_cfg)
+    try:
+        auth_token = decrypt_value(broker_auth.access_token)
+    except Exception:
+        return ping_broker(None, broker_name)
+
+    return await run_in_threadpool(ping_broker, auth_token, broker_name, config)
 
 
 @router.get("/credentials/{broker_name}", response_model=BrokerConfigResponse)

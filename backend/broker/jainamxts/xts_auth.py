@@ -171,6 +171,29 @@ def dealer_client_candidates(auth_token: str | None) -> list[str | None]:
     return out
 
 
+def xts_call_ok(payload: dict | None) -> bool:
+    """Symphony may return type=True (bool) or type='success'."""
+    if not isinstance(payload, dict):
+        return False
+    return payload.get("type") in ("success", True, "true", 1)
+
+
+def xts_token_invalid(payload: dict | None, status_code: int | None = None) -> bool:
+    """True when Symphony rejected the interactive token (e.g. e-token-0001)."""
+    if status_code in (401, 403):
+        return True
+    if not isinstance(payload, dict):
+        return False
+    code = str(payload.get("code") or "").lower()
+    desc = str(payload.get("description") or payload.get("message") or "").lower()
+    if "e-token" in code or code in ("e-authorization-0001",):
+        return True
+    return any(
+        hint in desc
+        for hint in ("invalid token", "token/authorization", "not logged", "session expired")
+    )
+
+
 def env_order_keys_present() -> bool:
     api_key, api_secret = resolve_order_keys({})
     return bool(api_key and api_secret)

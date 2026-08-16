@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -16,6 +16,8 @@ import {
 } from "@/api/dashboard";
 import { listStrategies } from "@/api/strategy_module";
 import { cn } from "@/lib/utils";
+import { useBrokerStatus } from "@/components/layout/BrokerConnectionStatus";
+import { jainamxtsLogin } from "@/api/broker";
 import type {
   OrderbookItem,
   PositionItem,
@@ -105,35 +107,40 @@ function actionTone(action: string): string {
 // Loaders for sub-sections (all reuse-existing-endpoints, low staleness)
 // ---------------------------------------------------------------------------
 
-function useDashboardData() {
+function useDashboardData(enabled: boolean) {
   const funds = useQuery({
     queryKey: ["dashboard"],
     queryFn: getDashboard,
     refetchInterval: 30_000,
+    enabled,
   });
   const positions = useQuery({
     queryKey: ["dashboard", "positions"],
     queryFn: getPositions,
     refetchInterval: 15_000,
     staleTime: 10_000,
+    enabled,
   });
   const holdings = useQuery({
     queryKey: ["dashboard", "holdings"],
     queryFn: getHoldings,
     refetchInterval: 60_000,
     staleTime: 30_000,
+    enabled,
   });
   const orders = useQuery({
     queryKey: ["dashboard", "orderbook"],
     queryFn: getOrderbook,
     refetchInterval: 20_000,
     staleTime: 10_000,
+    enabled,
   });
   const trades = useQuery({
     queryKey: ["dashboard", "tradebook"],
     queryFn: getTradebook,
     refetchInterval: 30_000,
     staleTime: 15_000,
+    enabled,
   });
   const strategies = useQuery({
     queryKey: ["dashboard", "strategies"],
@@ -787,8 +794,53 @@ function EmptyState({
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const status = useBrokerStatus();
+  const connected = status.data?.connected === true;
   const { funds, positions, holdings, orders, trades, strategies } =
-    useDashboardData();
+    useDashboardData(connected);
+
+  if (status.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-primary" />
+          <p className="text-sm text-muted-foreground">Checking broker connection…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!connected) {
+    const label = status.data?.display_name || status.data?.broker || "broker";
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="max-w-md space-y-3 rounded-md border border-rose-500/30 bg-rose-500/8 p-6 text-center">
+          <p className="text-sm font-semibold tracking-tight text-foreground">
+            {label} is disconnected
+          </p>
+          <p className="text-[13px] text-muted-foreground">
+            Funds and positions stay hidden until a live ping succeeds. A
+            dead session used to render as ₹0.00.
+          </p>
+          <button
+            type="button"
+            className="inline-flex h-9 items-center rounded-md bg-foreground px-3 text-sm font-medium text-background"
+            onClick={async () => {
+              try {
+                await jainamxtsLogin();
+                await queryClient.invalidateQueries();
+              } catch {
+                navigate("/broker/select");
+              }
+            }}
+          >
+            Reconnect
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (funds.isLoading) {
     return (

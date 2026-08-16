@@ -32,3 +32,16 @@ export interface AngelLoginPayload {
   broker_pin: string;
   totp_code: string;
 }
+
+export interface BrokerConnectionStatus {
+  connected: boolean;
+  token_valid: boolean;
+  broker: string | null;
+  display_name: string;
+  client_id: string | null;
+  user_id: string | null;
+  trading_client_id: string | null;
+  latency_ms: number | null;
+  message: string;
+  checked_at: string;
+}

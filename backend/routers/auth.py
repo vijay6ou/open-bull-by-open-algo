@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.database import async_session
-from backend.dependencies import get_db, get_current_user, invalidate_user_cache
+from backend.dependencies import get_db, get_current_user, invalidate_user_cache, _broker_config_dict
 from backend.limiter import limiter
 from backend.models.user import User
 from backend.models.auth import BrokerAuth, ApiKey
@@ -19,7 +19,6 @@ from backend.security import (
     hash_password, verify_password, check_needs_rehash, create_access_token,
     generate_api_key, hash_api_key, encrypt_value, decrypt_value,
 )
-from backend.utils.plugin_loader import get_broker_module
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -96,28 +95,28 @@ async def _resume_broker_if_valid(
             )
         )
         broker_cfg = cfg_result.scalar_one_or_none()
-        broker_config: dict = {}
-        if broker_cfg:
-            broker_config = {
-                "api_key": decrypt_value(broker_cfg.api_key),
-                "api_secret": decrypt_value(broker_cfg.api_secret),
-                "redirect_url": broker_cfg.redirect_url,
-            }
+        broker_config = _broker_config_dict(broker_cfg)
 
-        funds_mod = get_broker_module(candidate_broker, "funds")
-        margin = await run_in_threadpool(
-            funds_mod.get_margin_data, auth_token, broker_config
+        from backend.services.broker_status_service import ping_broker
+
+        status = await run_in_threadpool(
+            ping_broker, auth_token, candidate_broker, broker_config
         )
     except Exception as exc:
         logger.warning(
             "Broker session resume check failed for user %s (%s): %s",
             user.username, candidate_broker, exc,
         )
-        broker_auth.is_revoked = True
-        await invalidate_user_cache(user.id)
         return None
 
-    if not margin:
+    if status.get("connected"):
+        logger.info(
+            "Resumed broker session for user %s on %s (%sms)",
+            user.username, candidate_broker, status.get("latency_ms"),
+        )
+        return candidate_broker
+
+    if status.get("token_valid") is False:
         logger.info(
             "Stored broker token for user %s on %s is no longer valid; revoking",
             user.username, candidate_broker,
@@ -126,9 +125,9 @@ async def _resume_broker_if_valid(
         await invalidate_user_cache(user.id)
         return None
 
-    logger.info(
-        "Resumed broker session for user %s on %s",
-        user.username, candidate_broker,
+    logger.warning(
+        "Broker ping failed for user %s on %s (%s); keeping session",
+        user.username, candidate_broker, status.get("message"),
     )
     return candidate_broker
 

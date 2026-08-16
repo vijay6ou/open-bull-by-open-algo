@@ -340,3 +340,109 @@ def test_map_position_data_dealer_payload():
     assert rows[0]["average_price"] == 120.5
     assert isinstance(rows[0]["average_price"], float)
 
+
+def test_xts_token_invalid_and_call_ok():
+    from backend.broker.jainamxts.xts_auth import xts_call_ok, xts_token_invalid
+
+    assert xts_call_ok({"type": "success"})
+    assert xts_call_ok({"type": True})
+    assert not xts_call_ok({"type": "error"})
+    assert xts_token_invalid(
+        {"type": "error", "code": "e-token-0001", "description": "Invalid Token"}
+    )
+    assert xts_token_invalid({"type": "error"}, 401)
+    assert not xts_token_invalid({"type": "success", "description": "OK"}, 200)
+
+
+def test_ping_session_connected_and_invalid_token(monkeypatch):
+    from backend.broker.jainamxts.api.auth_api import ping_session
+    from backend.broker.jainamxts.xts_auth import pack_auth
+
+    class _Resp:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self.content = b"{}"
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Ok:
+        def get(self, url, headers=None, timeout=None):
+            assert "clientID=ITC3278A06" in url
+            assert "user/balance" in url
+            return _Resp(200, {"type": "success", "description": "OK", "result": {"BalanceList": [{}]}})
+
+    monkeypatch.setattr(
+        "backend.broker.jainamxts.api.auth_api.get_httpx_client", lambda: _Ok()
+    )
+    monkeypatch.setattr(
+        "backend.broker.jainamxts.baseurl._settings_value", lambda _name: ""
+    )
+    packed = pack_auth("int-tok", "feed", "ITC3278A06", "ITC3278")
+    ok = ping_session(packed, {"client_id": "ITC3278A06"})
+    assert ok["connected"] is True
+    assert ok["token_valid"] is True
+    assert ok["client_id"] == "ITC3278A06"
+    assert ok["message"] == "pong"
+
+    class _Dead:
+        def get(self, url, headers=None, timeout=None):
+            return _Resp(
+                400,
+                {"type": "error", "code": "e-token-0001", "description": "Invalid Token"},
+            )
+
+    monkeypatch.setattr(
+        "backend.broker.jainamxts.api.auth_api.get_httpx_client", lambda: _Dead()
+    )
+    dead = ping_session(packed, {"client_id": "ITC3278A06"})
+    assert dead["connected"] is False
+    assert dead["token_valid"] is False
+    assert "Invalid Token" in dead["message"]
+
+
+def test_empty_funds_is_not_success():
+    from backend.services.funds_service import get_funds_with_auth
+
+    class _EmptyFunds:
+        @staticmethod
+        def get_margin_data(auth_token, config=None):
+            return {}
+
+    import backend.services.funds_service as mod
+
+    original = mod._import_broker_module
+    mod._import_broker_module = lambda _name: _EmptyFunds()
+    try:
+        ok, body, status = get_funds_with_auth("tok", "jainamxts", {})
+        assert ok is False
+        assert status == 502
+        assert "disconnected" in body["message"].lower()
+    finally:
+        mod._import_broker_module = original
+
+
+def test_positions_broker_error_is_not_empty_book():
+    from backend.services import positions_service as mod
+
+    fake = {
+        "get_positions": lambda _auth: {
+            "type": "error",
+            "code": "e-token-0001",
+            "description": "Invalid Token",
+        },
+        "map_position_data": lambda data: {"positionList": []},
+        "transform_positions_data": lambda data: [],
+    }
+    original = mod._import_broker_modules
+    mod._import_broker_modules = lambda _name: fake
+    try:
+        ok, body, status = mod.get_positions_with_auth("tok", "jainamxts")
+        assert ok is False
+        assert status == 502
+        assert "Invalid Token" in body["message"]
+    finally:
+        mod._import_broker_modules = original
+
+

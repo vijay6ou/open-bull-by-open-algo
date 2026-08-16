@@ -5,6 +5,7 @@ import type {
   BrokerConfigData,
   BrokerConfigResponse,
   BrokerRedirectResponse,
+  BrokerConnectionStatus,
 } from "@/types/broker";
 
 export async function listBrokers(): Promise<BrokerListItem[]> {
@@ -44,5 +45,10 @@ export async function angelLogin(payload: AngelLoginPayload): Promise<{ status: 
 
 export async function jainamxtsLogin(): Promise<{ status: string; broker: string }> {
   const response = await api.post<{ status: string; broker: string }>("/jainamxts/login");
+  return response.data;
+}
+
+export async function getBrokerStatus(): Promise<BrokerConnectionStatus> {
+  const response = await api.get<BrokerConnectionStatus>("/web/broker/status");
   return response.data;
 }

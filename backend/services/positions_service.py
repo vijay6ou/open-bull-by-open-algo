@@ -81,6 +81,16 @@ def get_positions_with_auth(
                 500,
             )
 
+        if isinstance(positions_data, dict) and "type" in positions_data:
+            ptype = positions_data.get("type")
+            if ptype not in ("success", True, "true", 1):
+                message = (
+                    positions_data.get("description")
+                    or positions_data.get("message")
+                    or "Broker session disconnected"
+                )
+                return False, {"status": "error", "message": str(message)}, 502
+
         positions_data = broker_funcs["map_position_data"](positions_data)
         positions_data = broker_funcs["transform_positions_data"](positions_data)
 

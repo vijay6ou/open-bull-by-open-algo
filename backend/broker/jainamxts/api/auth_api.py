@@ -31,6 +31,10 @@ from backend.broker.jainamxts.xts_auth import (
     pick_trading_client_id,
     resolve_market_keys,
     resolve_order_keys,
+    resolve_rms_client_id,
+    split_auth,
+    xts_call_ok,
+    xts_token_invalid,
 )
 from backend.utils.httpx_client import get_httpx_client
 
@@ -239,3 +243,64 @@ def authenticate_broker(code_or_token: str | None, config: dict) -> tuple[str | 
     except Exception as e:
         logger.exception("Unexpected error during Jainam DMA authentication")
         return None, f"Unexpected error during authentication: {e}"
+
+
+def ping_session(auth_token: str, config: dict | None = None) -> dict:
+    """Live round-trip against Symphony ``GET /user/balance``.
+
+    Profile is unused: dealer logins return ``No Data Available``. Balance
+    with the RMS client (ITC3278A06) is the same ping Apex Fo uses for funds.
+    """
+    import time
+
+    interactive, _, user_id, trading_client = split_auth(auth_token)
+    rms_id = resolve_rms_client_id(auth_token, config)
+    base = {
+        "connected": False,
+        "token_valid": True,
+        "latency_ms": None,
+        "client_id": rms_id,
+        "user_id": user_id,
+        "trading_client_id": trading_client,
+        "message": "Not connected",
+    }
+    if not interactive:
+        base["token_valid"] = False
+        base["message"] = "No interactive token"
+        return base
+
+    url = f"{get_interactive_url()}/user/balance"
+    if rms_id:
+        url = f"{url}?clientID={rms_id}"
+
+    started = time.perf_counter()
+    try:
+        client = get_httpx_client()
+        response = client.get(
+            url,
+            headers={"authorization": interactive, "Content-Type": "application/json"},
+            timeout=8.0,
+        )
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        payload = response.json() if response.content else {}
+    except Exception as exc:
+        base["message"] = f"Broker ping failed: {exc}"
+        logger.warning("Jainam DMA ping error: %s", exc)
+        return base
+
+    base["latency_ms"] = latency_ms
+    if not isinstance(payload, dict):
+        base["message"] = "Broker ping returned a non-JSON body"
+        return base
+
+    if xts_call_ok(payload) and response.status_code == 200:
+        base["connected"] = True
+        base["message"] = "pong"
+        return base
+
+    desc = payload.get("description") or payload.get("message") or "Broker ping failed"
+    base["message"] = str(desc)
+    if xts_token_invalid(payload, response.status_code):
+        base["token_valid"] = False
+        logger.warning("Jainam DMA ping: invalid token (%s)", desc)
+    return base

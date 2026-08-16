@@ -50,6 +50,15 @@ def get_funds_with_auth(
 
     try:
         funds = broker_module.get_margin_data(auth_token, config)
+        if not funds:
+            return (
+                False,
+                {
+                    "status": "error",
+                    "message": "Broker funds unavailable — session may be disconnected",
+                },
+                502,
+            )
         return True, {"status": "success", "data": funds}, 200
     except Exception as e:
         logger.exception("Error in broker_module.get_margin_data: %s", e)

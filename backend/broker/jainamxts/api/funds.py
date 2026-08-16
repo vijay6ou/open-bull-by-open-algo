@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from backend.broker.jainamxts.baseurl import get_interactive_url
-from backend.broker.jainamxts.xts_auth import resolve_rms_client_id, split_auth
+from backend.broker.jainamxts.xts_auth import resolve_rms_client_id, split_auth, xts_call_ok
 from backend.utils.httpx_client import get_httpx_client
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,9 @@ def get_margin_data(auth_token: str, config: dict | None = None) -> dict:
         return {}
 
     result = margin_data.get("result") if isinstance(margin_data, dict) else None
+    if not xts_call_ok(margin_data):
+        logger.error("Jainam funds ping failed: %s", margin_data)
+        return {}
     balance_list = (result or {}).get("BalanceList") or []
     if not balance_list:
         logger.error("Jainam funds response missing BalanceList: %s", margin_data)
