@@ -17,7 +17,7 @@ from backend.broker.jainamxts.mapping.transform_data import (
     transform_data,
     transform_modify_order_data,
 )
-from backend.broker.jainamxts.xts_auth import resolve_client_id, split_auth
+from backend.broker.jainamxts.xts_auth import dealer_client_candidates, resolve_client_id, split_auth
 from backend.broker.upstox.mapping.order_data import (
     get_brsymbol_from_cache,
     get_token_from_cache,
@@ -37,24 +37,25 @@ def _client_id(auth: str) -> str:
     return client_id or resolve_client_id({})
 
 
-def _with_client(endpoint: str, auth: str) -> str:
-    client_id = _client_id(auth)
+_UNSET = object()
+
+
+def _with_client(endpoint: str, client_id: str) -> str:
     if not client_id:
         return endpoint
     sep = "&" if "?" in endpoint else "?"
     return f"{endpoint}{sep}clientID={client_id}"
 
 
-def get_api_response(endpoint: str, auth: str, method: str = "GET", payload=None) -> dict:
+def get_api_response(endpoint: str, auth: str, method: str = "GET", payload=None, client_id=_UNSET) -> dict:
+    cid = _client_id(auth) if client_id is _UNSET else (client_id or "")
     headers = {
         "authorization": _interactive(auth),
         "Content-Type": "application/json",
     }
-    url = f"{get_interactive_url()}{_with_client(endpoint, auth)}"
-    if isinstance(payload, dict):
-        client_id = _client_id(auth)
-        if client_id and "clientID" not in payload:
-            payload = {**payload, "clientID": client_id}
+    url = f"{get_interactive_url()}{_with_client(endpoint, cid)}"
+    if isinstance(payload, dict) and cid and "clientID" not in payload:
+        payload = {**payload, "clientID": cid}
     client = get_httpx_client()
     if method == "GET":
         response = client.get(url, headers=headers)
@@ -73,31 +74,69 @@ def get_api_response(endpoint: str, auth: str, method: str = "GET", payload=None
         return {"type": "error", "description": response.text, "status_code": response.status_code}
 
 
+def _position_rows(data: dict) -> list:
+    result = (data or {}).get("result")
+    if isinstance(result, dict):
+        rows = result.get("positionList") or result.get("PositionList") or []
+        return rows if isinstance(rows, list) else []
+    if isinstance(result, list):
+        return result
+    return []
+
+
+def _result_rows(data: dict) -> list:
+    result = (data or {}).get("result")
+    if isinstance(result, dict):
+        for key in ("positionList", "PositionList", "orderBook", "tradeBook", "orders", "trades"):
+            rows = result.get(key)
+            if isinstance(rows, list):
+                return rows
+        return []
+    if isinstance(result, list):
+        return result
+    return []
+
+
+def _dealer_first(regular: str, dealer: str, auth: str, nonempty=None) -> dict:
+    """DMA dealer accounts reject investor endpoints; try dealer books with several clientIDs."""
+    last: dict = {}
+    for cid in dealer_client_candidates(auth):
+        data = get_api_response(dealer, auth, client_id=cid)
+        last = data
+        if data.get("type") == "success":
+            if nonempty is None or nonempty(data):
+                return data
+    data = get_api_response(regular, auth)
+    if data.get("type") == "success":
+        return data
+    return last or data
+
+
 def get_order_book(auth: str) -> dict:
-    data = get_api_response("/orders", auth)
-    if data.get("type") != "success":
-        dealer = get_api_response("/orders/dealerorderbook", auth)
-        if dealer.get("type") == "success":
-            return dealer
-    return data
+    return _dealer_first(
+        "/orders",
+        "/orders/dealerorderbook",
+        auth,
+        nonempty=lambda data: bool(_result_rows(data)),
+    )
 
 
 def get_trade_book(auth: str) -> dict:
-    data = get_api_response("/orders/trades", auth)
-    if data.get("type") != "success":
-        dealer = get_api_response("/orders/dealertradebook", auth)
-        if dealer.get("type") == "success":
-            return dealer
-    return data
+    return _dealer_first(
+        "/orders/trades",
+        "/orders/dealertradebook",
+        auth,
+        nonempty=lambda data: bool(_result_rows(data)),
+    )
 
 
 def get_positions(auth: str) -> dict:
-    data = get_api_response("/portfolio/positions?dayOrNet=NetWise", auth)
-    if data.get("type") != "success":
-        dealer = get_api_response("/portfolio/dealerpositions?dayOrNet=NetWise", auth)
-        if dealer.get("type") == "success":
-            return dealer
-    return data
+    return _dealer_first(
+        "/portfolio/positions?dayOrNet=NetWise",
+        "/portfolio/dealerpositions?dayOrNet=NetWise",
+        auth,
+        nonempty=lambda data: bool(_position_rows(data)),
+    )
 
 
 def get_holdings(auth: str) -> dict:
@@ -167,7 +206,7 @@ def place_order_api(data: dict, auth: str) -> tuple:
         if client_id:
             payload = {**payload, "clientID": client_id}
     response = client.post(
-        f"{get_interactive_url()}{_with_client('/orders', auth)}",
+        f"{get_interactive_url()}{_with_client('/orders', _client_id(auth))}",
         headers={"authorization": _interactive(auth), "Content-Type": "application/json"},
         json=payload,
     )
@@ -260,7 +299,7 @@ def close_all_positions(current_api_key, auth):
 def cancel_order(orderid: str, auth: str) -> tuple:
     client = get_httpx_client()
     response = client.delete(
-        f"{get_interactive_url()}{_with_client(f'/orders?appOrderID={orderid}', auth)}",
+        f"{get_interactive_url()}{_with_client(f'/orders?appOrderID={orderid}', _client_id(auth))}",
         headers={"authorization": _interactive(auth), "Content-Type": "application/json"},
     )
     response.status = response.status_code
@@ -281,7 +320,7 @@ def modify_order(data: dict, auth: str) -> tuple:
         transformed = {**transformed, "clientID": client_id}
     client = get_httpx_client()
     response = client.put(
-        f"{get_interactive_url()}{_with_client('/orders', auth)}",
+        f"{get_interactive_url()}{_with_client('/orders', _client_id(auth))}",
         headers={"authorization": _interactive(auth), "Content-Type": "application/json"},
         json=transformed,
     )

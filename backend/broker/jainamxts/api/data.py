@@ -70,6 +70,30 @@ EXCHANGE_SEGMENT_NAME = {
 _QUOTE_BATCH = 50
 _QUOTE_DELAY = 0.1
 
+_SEG_NAME_TO_ID = {
+    **EXCHANGE_SEGMENT,
+    "NSECM": 1,
+    "NSEFO": 2,
+    "NSECD": 3,
+    "BSECM": 11,
+    "BSEFO": 12,
+    "MCXFO": 51,
+}
+
+
+def _quote_key(segment, instrument_id) -> str:
+    """Match quote responses whether ExchangeSegment is 2 or 'NSEFO'."""
+    if isinstance(segment, str):
+        segment = _SEG_NAME_TO_ID.get(segment.upper(), segment)
+    return f"{segment}_{instrument_id}"
+
+
+def _ltp(touchline: dict) -> float:
+    try:
+        return float(touchline.get("LastTradedPrice") or touchline.get("Close") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
 
 def _feed(auth_token: str) -> str:
     _, feed, _, _ = split_auth(auth_token)
@@ -149,7 +173,7 @@ def get_quotes(symbol: str, exchange: str, auth_token: str, config: dict | None 
         "bid": touchline.get("BidInfo", {}).get("Price", 0) or 0,
         "high": touchline.get("High", 0) or 0,
         "low": touchline.get("Low", 0) or 0,
-        "ltp": touchline.get("LastTradedPrice", 0) or 0,
+        "ltp": _ltp(touchline),
         "open": touchline.get("Open", 0) or 0,
         "prev_close": touchline.get("Close", 0) or 0,
         "volume": touchline.get("TotalTradedQuantity", 0) or 0,
@@ -196,7 +220,7 @@ def _process_multiquotes_batch(symbols: list[dict], auth_token: str, config: dic
             skipped.append({"symbol": symbol, "exchange": exchange, "data": None, "error": str(e)})
             continue
         instruments.append(inst)
-        symbol_map[f"{inst['exchangeSegment']}_{inst['exchangeInstrumentID']}"] = {
+        symbol_map[_quote_key(inst["exchangeSegment"], inst["exchangeInstrumentID"])] = {
             "symbol": symbol, "exchange": exchange,
         }
 
@@ -216,7 +240,10 @@ def _process_multiquotes_batch(symbols: list[dict], auth_token: str, config: dic
     for raw in (response.get("result") or {}).get("listQuotes") or []:
         try:
             quote_data = json.loads(raw) if isinstance(raw, str) else raw
-            key = f"{quote_data.get('ExchangeSegment')}_{quote_data.get('ExchangeInstrumentID')}"
+            key = _quote_key(
+                quote_data.get("ExchangeSegment"),
+                quote_data.get("ExchangeInstrumentID"),
+            )
             original = symbol_map.get(key)
             if not original:
                 continue
@@ -229,7 +256,7 @@ def _process_multiquotes_batch(symbols: list[dict], auth_token: str, config: dic
                     "bid": touchline.get("BidInfo", {}).get("Price", 0) or 0,
                     "high": touchline.get("High", 0) or 0,
                     "low": touchline.get("Low", 0) or 0,
-                    "ltp": touchline.get("LastTradedPrice", 0) or 0,
+                    "ltp": _ltp(touchline),
                     "open": touchline.get("Open", 0) or 0,
                     "prev_close": touchline.get("Close", 0) or 0,
                     "volume": touchline.get("TotalTradedQuantity", 0) or 0,
@@ -271,7 +298,7 @@ def get_market_depth(symbol: str, exchange: str, auth_token: str, config: dict |
             "bids": bids, "asks": asks,
             "high": touchline.get("High", 0) or 0,
             "low": touchline.get("Low", 0) or 0,
-            "ltp": touchline.get("LastTradedPrice", 0) or 0,
+            "ltp": _ltp(touchline),
             "ltq": touchline.get("LastTradedQunatity") or touchline.get("LastTradedQuantity") or 0,
             "open": touchline.get("Open", 0) or 0,
             "prev_close": touchline.get("Close", 0) or 0,

@@ -27,7 +27,7 @@ from backend.broker.jainamxts.baseurl import (
 )
 from backend.broker.jainamxts.xts_auth import (
     pack_auth,
-    resolve_client_id,
+    pick_trading_client_id,
     resolve_market_keys,
     resolve_order_keys,
 )
@@ -162,7 +162,6 @@ def authenticate_broker(code_or_token: str | None, config: dict) -> tuple[str | 
             "Save them on Broker Configuration (or set BROKER_API_KEY / BROKER_API_SECRET)."
         )
 
-    client_id = resolve_client_id(config)
     unique_key, connection_string, lookup_error = hostlookup()
     if lookup_error or not unique_key:
         logger.warning("Jainam DMA hostlookup failed (%s); trying direct WEBAPI session", lookup_error)
@@ -208,12 +207,13 @@ def authenticate_broker(code_or_token: str | None, config: dict) -> tuple[str | 
 
                 feed_token, feed_user, feed_error = get_feed_token(config)
                 user_id = session_user or feed_user or ""
+                client_id = pick_trading_client_id(config, body)
                 if feed_error:
                     logger.warning("Jainam DMA interactive login ok; feed token failed: %s", feed_error)
                     return pack_auth(token, "", user_id, client_id), None
 
                 logger.info(
-                    "Authenticated Jainam DMA (userID=%s clientID=%s url=%s)",
+                    "Authenticated Jainam DMA (userID=%s tradingClientID=%s url=%s)",
                     user_id,
                     client_id,
                     session_url,

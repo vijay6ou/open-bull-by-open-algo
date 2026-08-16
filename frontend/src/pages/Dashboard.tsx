@@ -37,6 +37,11 @@ const COMPACT_NUMBER = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 0,
 });
 
+function num(value: unknown): number {
+  const n = typeof value === "number" ? value : parseFloat(String(value ?? ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
 function formatCurrency(value: number): string {
   return INR.format(value);
 }
@@ -809,11 +814,11 @@ export default function Dashboard() {
   const f = funds.data;
 
   const fundCards = [
-    { label: "Available Cash", value: f?.availablecash ?? 0, isPnl: false },
-    { label: "Collateral", value: f?.collateral ?? 0, isPnl: false },
-    { label: "M2M Unrealized", value: f?.m2munrealized ?? 0, isPnl: true },
-    { label: "M2M Realized", value: f?.m2mrealized ?? 0, isPnl: true },
-    { label: "Utilized Debits", value: f?.utiliseddebits ?? 0, isPnl: false },
+    { label: "Available Cash", value: num(f?.availablecash), isPnl: false },
+    { label: "Collateral", value: num(f?.collateral), isPnl: false },
+    { label: "M2M Unrealized", value: num(f?.m2munrealized), isPnl: true },
+    { label: "M2M Realized", value: num(f?.m2mrealized), isPnl: true },
+    { label: "Utilized Debits", value: num(f?.utiliseddebits), isPnl: false },
   ];
 
   const positionsData = positions.data ?? [];
@@ -822,8 +827,8 @@ export default function Dashboard() {
   const tradesData = trades.data ?? [];
   const strategiesData = strategies.data ?? [];
 
-  const dayPnl = (f?.m2munrealized ?? 0) + (f?.m2mrealized ?? 0);
-  const openPositions = positionsData.filter((p) => p.quantity !== 0).length;
+  const dayPnl = num(f?.m2munrealized) + num(f?.m2mrealized);
+  const openPositions = positionsData.filter((p) => Number(p.quantity) !== 0).length;
   const runningStrategies = strategiesData.filter(
     (s) => s.status === "running"
   ).length;

@@ -4,13 +4,15 @@ Combined auth token:
 
     ``interactive_token:::feed_token:::user_id:::client_id``
 
-DMA dealer calls need ``clientID`` (e.g. ITC3278A06) on every interactive
-request. Market + order keys fall back to OpenAlgo ``BROKER_API_KEY*`` names.
+The packed ``client_id`` is the *trading* client (session ``clientCodes[0]``,
+e.g. ITC3278), not the dealer login user (e.g. ITC3278A06). Dealer books are
+empty when queried with the login user id.
 """
 
 from __future__ import annotations
 
 import os
+import re
 
 TOKEN_SEP = ":::"
 
@@ -103,6 +105,45 @@ def resolve_client_id(config: dict | None) -> str:
         os.getenv("JAINAM_SYMPHONY_A_PRO_CLIENT_ID"),
         os.getenv("JAINAM_SYMPHONY_A_NORMAL_CLIENT_ID"),
     )
+
+
+_DEALER_USER_SUFFIX = re.compile(r"^([A-Z]{2,}\d+)[A-Z]\d{2}$")
+
+
+def strip_dealer_user_suffix(client_id: str | None) -> str:
+    """ITC3278A06 (dealer login user) -> ITC3278 (trading client)."""
+    raw = (client_id or "").strip()
+    match = _DEALER_USER_SUFFIX.match(raw)
+    return match.group(1) if match else ""
+
+
+def pick_trading_client_id(config: dict | None, session_result: dict | None = None) -> str:
+    """Prefer session clientCodes[0]; else strip dealer-user suffix from env id."""
+    result = session_result or {}
+    codes = result.get("clientCodes") or result.get("ClientCodes") or []
+    if isinstance(codes, list) and codes:
+        code = str(codes[0]).strip()
+        if code:
+            return code
+    configured = resolve_client_id(config)
+    return strip_dealer_user_suffix(configured) or configured
+
+
+def dealer_client_candidates(auth_token: str | None) -> list[str | None]:
+    """clientIDs to try for dealer books. Last entry None omits the param."""
+    packed = split_auth(auth_token)[3]
+    seen: set[str] = set()
+    out: list[str | None] = []
+    for cid in (packed, strip_dealer_user_suffix(packed), resolve_client_id({})):
+        if cid and cid not in seen:
+            seen.add(cid)
+            out.append(cid)
+        stripped = strip_dealer_user_suffix(cid) if cid else ""
+        if stripped and stripped not in seen:
+            seen.add(stripped)
+            out.append(stripped)
+    out.append(None)
+    return out
 
 
 def env_order_keys_present() -> bool:

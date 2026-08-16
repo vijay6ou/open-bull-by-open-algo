@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -24,6 +25,24 @@ TMP_DIR = Path(__file__).resolve().parents[4] / "tmp"
 TMP_DIR.mkdir(exist_ok=True)
 
 _frames: list[pd.DataFrame] = []
+
+_MONTHS = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
+_SPREAD_RE = re.compile(rf"(?:{_MONTHS}).*(?:{_MONTHS})", re.I)
+
+
+def _drop_calendar_spreads(df: pd.DataFrame) -> pd.DataFrame:
+    """XTS master includes calendar spreads whose Description has two months.
+
+    Those rows reuse the outright FUT OpenBull symbol and poison token lookup
+    (e.g. NIFTY25AUG26FUT -> NIFTY26AUG26OCTFUT).
+    """
+    if df.empty or "Description" not in df.columns:
+        return df
+    mask = df["Description"].astype(str).str.contains(_SPREAD_RE, na=False)
+    dropped = int(mask.sum())
+    if dropped:
+        logger.info("Dropped %s calendar-spread rows from %s", dropped, df["ExchangeSegment"].iloc[0] if "ExchangeSegment" in df.columns else "FO")
+    return df.loc[~mask].copy()
 
 
 def _build_isolated_engine_and_session():
@@ -267,6 +286,7 @@ def process_jainamxts_nfo_csv(path):
     df = pd.read_csv(
         file_path, dtype={"StrikePrice": str, " PriceNumerator": str}, low_memory=False
     )
+    df = _drop_calendar_spreads(df)
 
     # Convert 'Expiry Date' column to datetime format
     df["ContractExpiration"] = pd.to_datetime(df["ContractExpiration"])
@@ -374,6 +394,7 @@ def process_jainamxts_bfo_csv(path):
     df = pd.read_csv(
         file_path, dtype={"StrikePrice": str, " PriceNumerator": str}, low_memory=False
     )
+    df = _drop_calendar_spreads(df)
 
     # Convert 'Expiry Date' column to datetime format
     df["ContractExpiration"] = pd.to_datetime(df["ContractExpiration"])

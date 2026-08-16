@@ -155,7 +155,15 @@ def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
             if url.endswith("/user/session"):
                 return _Resp(
                     200,
-                    {"type": "success", "result": {"token": "int-tok", "userID": "USER1"}},
+                    {
+                        "type": "success",
+                        "result": {
+                            "token": "int-tok",
+                            "userID": "USER1",
+                            "clientCodes": ["ITC3278"],
+                            "isInvestorClient": False,
+                        },
+                    },
                 )
             if url.endswith("/auth/login"):
                 return _Resp(
@@ -186,7 +194,7 @@ def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
         },
     )
     assert error is None
-    assert token == "int-tok:::feed-tok:::USER1:::ITC3278A06"
+    assert token == "int-tok:::feed-tok:::USER1:::ITC3278"
     assert posted[0][0] == "https://smpa.jainam.in:6543/hostlookup"
     assert posted[1][0] == "https://smpa.jainam.in:6543/1hostlookup/user/session"
     session_posts = [body for url, body in posted if url.endswith("/user/session")]
@@ -195,4 +203,67 @@ def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
     assert session_posts[0]["uniqueKey"] == "uk-1"
     assert "accessToken" not in session_posts[0]
     assert "jtrade" not in "".join(url for url, _ in posted)
+
+
+def test_strip_dealer_user_suffix():
+    from backend.broker.jainamxts.xts_auth import (
+        dealer_client_candidates,
+        pick_trading_client_id,
+        strip_dealer_user_suffix,
+    )
+
+    assert strip_dealer_user_suffix("ITC3278A06") == "ITC3278"
+    assert strip_dealer_user_suffix("ITC3278") == ""
+    assert strip_dealer_user_suffix("DLL7182") == ""
+    assert pick_trading_client_id(
+        {"client_id": "ITC3278A06"},
+        {"clientCodes": ["ITC3278"], "userID": "ITC3278A06"},
+    ) == "ITC3278"
+    assert pick_trading_client_id({"client_id": "ITC3278A06"}, {}) == "ITC3278"
+    packed = "tok:::feed:::USER:::ITC3278A06"
+    candidates = dealer_client_candidates(packed)
+    assert "ITC3278A06" in candidates
+    assert "ITC3278" in candidates
+    assert candidates[-1] is None
+
+
+def test_quote_key_normalizes_segment_name():
+    from backend.broker.jainamxts.api.data import _quote_key, _ltp
+
+    assert _quote_key(2, 12345) == _quote_key("NSEFO", 12345)
+    assert _quote_key(1, "26000") == _quote_key("NSECM", "26000")
+    assert _ltp({"LastTradedPrice": 0, "Close": 24366}) == 24366.0
+
+
+def test_map_position_data_dealer_payload():
+    from backend.broker.jainamxts.mapping.order_data import (
+        map_position_data,
+        transform_positions_data,
+    )
+
+    raw = {
+        "type": "success",
+        "result": {
+            "positionList": [
+                {
+                    "AccountID": "ITC3278",
+                    "TradingSymbol": "NIFTY 18AUG2026 CE 24450",
+                    "ExchangeSegment": "NSEFO",
+                    "ExchangeInstrumentId": 111,
+                    "ProductType": "NRML",
+                    "Quantity": "-520",
+                    "SellAveragePrice": 120.5,
+                    "LastTradedPrice": 130.0,
+                    "UnrealizedMTM": -4940,
+                }
+            ]
+        },
+    }
+    mapped = map_position_data(raw)
+    rows = transform_positions_data(mapped)
+    assert len(rows) == 1
+    assert rows[0]["quantity"] == -520
+    assert rows[0]["exchange"] == "NFO"
+    assert rows[0]["symbol"]
+    assert rows[0]["pnl"] == -4940.0
 

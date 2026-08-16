@@ -140,14 +140,40 @@ def transform_tradebook_data(tradebook_data: list[dict]) -> list[dict]:
 
 
 def map_position_data(position_data: dict) -> dict | list:
-    if not isinstance(position_data, dict) or "result" not in position_data or not position_data["result"]:
-        return []
-    return position_data["result"]
+    if not isinstance(position_data, dict):
+        return {"positionList": []}
+    result = position_data.get("result")
+    if not result:
+        return {"positionList": []}
+    if isinstance(result, dict):
+        rows = result.get("positionList") or result.get("PositionList") or []
+    elif isinstance(result, list):
+        rows = result
+    else:
+        return {"positionList": []}
+    if not isinstance(rows, list):
+        return {"positionList": []}
+
+    for position in rows:
+        if not isinstance(position, dict):
+            continue
+        token = (
+            position.get("ExchangeInstrumentId")
+            or position.get("ExchangeInstrumentID")
+            or position.get("InstrumentID")
+        )
+        exchange = EXCHANGE_MAP.get(position.get("ExchangeSegment", ""), position.get("ExchangeSegment", ""))
+        symbol = _oa_symbol_from_token(token, exchange)
+        if symbol:
+            position["TradingSymbol"] = symbol
+        elif not position.get("TradingSymbol"):
+            position["TradingSymbol"] = position.get("tradingSymbol") or ""
+    return {"positionList": rows}
 
 
 def transform_positions_data(positions_data) -> list[dict]:
     if isinstance(positions_data, dict):
-        rows = positions_data.get("positionList", [])
+        rows = positions_data.get("positionList") or positions_data.get("PositionList") or []
     else:
         rows = positions_data or []
     if not isinstance(rows, list):
@@ -157,24 +183,42 @@ def transform_positions_data(positions_data) -> list[dict]:
     for position in rows:
         if not isinstance(position, dict):
             continue
-        token = position.get("ExchangeInstrumentId")
+        token = position.get("ExchangeInstrumentId") or position.get("ExchangeInstrumentID")
         exchange = EXCHANGE_MAP.get(position.get("ExchangeSegment", ""), position.get("ExchangeSegment", ""))
-        symbol = _oa_symbol_from_token(token, exchange) or position.get("TradingSymbol", "")
-        qty = float(position.get("Quantity", 0) or 0)
+        symbol = (
+            position.get("TradingSymbol")
+            or _oa_symbol_from_token(token, exchange)
+            or ""
+        )
+        try:
+            qty = float(position.get("Quantity", 0) or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
         if qty > 0:
             avg = float(position.get("BuyAveragePrice", 0) or 0)
         elif qty < 0:
             avg = float(position.get("SellAveragePrice", 0) or 0)
         else:
             avg = 0.0
+        ltp = float(
+            position.get("LastTradedPrice")
+            or position.get("ltp")
+            or 0
+        )
+        pnl = float(
+            position.get("UnrealizedMTM")
+            or position.get("RealizedProfitLoss")
+            or position.get("pnl")
+            or 0
+        )
         out.append({
             "symbol": symbol,
             "exchange": exchange,
             "product": position.get("ProductType", ""),
             "quantity": int(qty),
             "average_price": f"{avg:.2f}",
-            "ltp": float(position.get("ltp", 0) or 0),
-            "pnl": float(position.get("pnl", 0) or 0),
+            "ltp": ltp,
+            "pnl": pnl,
         })
     return out
 
