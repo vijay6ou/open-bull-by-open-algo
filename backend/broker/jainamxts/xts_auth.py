@@ -4,9 +4,13 @@ Combined auth token:
 
     ``interactive_token:::feed_token:::user_id:::client_id``
 
-The packed ``client_id`` is the *trading* client (session ``clientCodes[0]``,
-e.g. ITC3278), not the dealer login user (e.g. ITC3278A06). Dealer books are
-empty when queried with the login user id.
+Split of identities (same as Apex Fo):
+
+* ``user_id`` (part 3) — dealer *login* user / RMS client, e.g. ITC3278A06.
+  Used for ``/user/balance`` (available cash, M2M, utilised margin).
+* ``client_id`` (part 4) — parent *trading* client from session
+  ``clientCodes[0]``, e.g. ITC3278. Used for dealer position/order books.
+  Dealer books are empty when queried with the login user id.
 """
 
 from __future__ import annotations
@@ -127,6 +131,27 @@ def pick_trading_client_id(config: dict | None, session_result: dict | None = No
             return code
     configured = resolve_client_id(config)
     return strip_dealer_user_suffix(configured) or configured
+
+
+def is_dealer_login_user(client_id: str | None) -> bool:
+    """True for DMA login users like ITC3278A06 (not parent book ITC3278)."""
+    return bool(strip_dealer_user_suffix(client_id))
+
+
+def resolve_rms_client_id(auth_token: str | None, config: dict | None = None) -> str:
+    """clientID for ``/user/balance``.
+
+    RMS figures (available cash, M2M, utilised debits) belong to the dealer
+    login user (ITC3278A06), not the parent trading book packed as token
+    part 4 (ITC3278). Prefer a dealer-user form from the packed session
+    ``userID`` or ``JAINAMXTS_CLIENT_ID``; never the trading client.
+    """
+    _, _, user_id, _ = split_auth(auth_token)
+    configured = resolve_client_id(config)
+    for cid in (user_id, configured):
+        if is_dealer_login_user(cid):
+            return cid
+    return user_id or configured
 
 
 def dealer_client_candidates(auth_token: str | None) -> list[str | None]:

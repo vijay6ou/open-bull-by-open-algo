@@ -33,6 +33,7 @@ def _interactive(auth: str) -> str:
 
 
 def _client_id(auth: str) -> str:
+    """Trading/parent client for dealer books (ITC3278), not RMS login user."""
     _, _, _, client_id = split_auth(auth)
     return client_id or resolve_client_id({})
 

@@ -8,7 +8,8 @@ accounts (OpenAlgo jainam_prop, Apex Fo) use:
   2. POST {interactive}/user/session with appKey, secretKey, uniqueKey, source=WEBAPI
   3. POST {BASE}/apibinarymarketdata/auth/login with market appKey/secret
 
-``clientID`` (e.g. ITC3278A06) is stored on the combined token for dealer calls.
+Packed token stores login ``userID`` (e.g. ITC3278A06) for RMS/funds and
+session ``clientCodes[0]`` (e.g. ITC3278) for dealer position/order books.
 """
 
 from __future__ import annotations

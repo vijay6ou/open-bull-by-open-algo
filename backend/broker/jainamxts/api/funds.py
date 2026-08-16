@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from backend.broker.jainamxts.baseurl import get_interactive_url
-from backend.broker.jainamxts.xts_auth import resolve_client_id, split_auth
+from backend.broker.jainamxts.xts_auth import resolve_rms_client_id, split_auth
 from backend.utils.httpx_client import get_httpx_client
 
 logger = logging.getLogger(__name__)
@@ -21,16 +21,21 @@ def _fmt(value) -> str:
 
 
 def get_margin_data(auth_token: str, config: dict | None = None) -> dict:
-    """Fetch margin data. Returns OpenBull funds keys as strings."""
-    interactive, _, _, client_id = split_auth(auth_token)
+    """Fetch margin data. Returns OpenBull funds keys as strings.
+
+    DMA RMS is per dealer *login* user (ITC3278A06), not the parent dealer
+    book used for positions (ITC3278). Matches Apex Fo ``/user/balance``.
+    """
+    interactive, _, _, _ = split_auth(auth_token)
     if not interactive:
         logger.error("Missing Jainam interactive token for funds call")
         return {}
 
-    client_id = client_id or resolve_client_id(config)
+    client_id = resolve_rms_client_id(auth_token, config)
     url = f"{get_interactive_url()}/user/balance"
     if client_id:
         url = f"{url}?clientID={client_id}"
+    logger.info("Jainam DMA funds GET %s", url)
 
     try:
         client = get_httpx_client()

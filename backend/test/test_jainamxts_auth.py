@@ -16,6 +16,7 @@ from backend.broker.jainamxts.xts_auth import (
     resolve_client_id,
     resolve_market_keys,
     resolve_order_keys,
+    resolve_rms_client_id,
     split_auth,
 )
 
@@ -225,6 +226,76 @@ def test_strip_dealer_user_suffix():
     assert "ITC3278A06" in candidates
     assert "ITC3278" in candidates
     assert candidates[-1] is None
+
+
+def test_rms_client_id_is_login_user_not_parent_book():
+    """Funds/RMS must use ITC3278A06; positions keep packed trading client ITC3278."""
+    packed = pack_auth("int-tok", "feed-tok", "ITC3278A06", "ITC3278")
+    assert resolve_rms_client_id(packed, {"client_id": "ITC3278A06"}) == "ITC3278A06"
+    assert resolve_rms_client_id(packed, {}) == "ITC3278A06"
+    # Packed trading client (part 4) must not win even if user_id is missing
+    # a dealer suffix — configured login user is preferred.
+    packed_market_user = pack_auth("int-tok", "feed-tok", "USER1", "ITC3278")
+    assert (
+        resolve_rms_client_id(packed_market_user, {"client_id": "ITC3278A06"})
+        == "ITC3278A06"
+    )
+
+
+def test_get_margin_data_queries_login_user(monkeypatch):
+    captured: list[str] = []
+
+    class _Resp:
+        def json(self):
+            return {
+                "type": "success",
+                "result": {
+                    "BalanceList": [
+                        {
+                            "limitObject": {
+                                "RMSSubLimits": {
+                                    "netMarginAvailable": 1225432.37,
+                                    "collateral": 0,
+                                    "UnrealizedMTM": -98246.10,
+                                    "RealizedMTM": 12.5,
+                                    "marginUtilized": 13774567.63,
+                                }
+                            }
+                        }
+                    ]
+                },
+            }
+
+    class _Client:
+        def get(self, url, headers=None):
+            captured.append(url)
+            return _Resp()
+
+    monkeypatch.setattr(
+        "backend.broker.jainamxts.api.funds.get_httpx_client", lambda: _Client()
+    )
+    monkeypatch.setattr(
+        "backend.broker.jainamxts.baseurl._settings_value", lambda _name: ""
+    )
+    monkeypatch.setattr(
+        "backend.broker.jainamxts.xts_auth._settings_value", lambda _name: ""
+    )
+    monkeypatch.delenv("JAINAM_BASE_URL", raising=False)
+    monkeypatch.delenv("JAINAM_ACTIVE_SYMPHONY_SERVER", raising=False)
+    monkeypatch.delenv("JAINAMXTS_CLIENT_ID", raising=False)
+
+    from backend.broker.jainamxts.api.funds import get_margin_data
+
+    packed = pack_auth("int-tok", "feed-tok", "ITC3278A06", "ITC3278")
+    data = get_margin_data(packed, {"client_id": "ITC3278A06"})
+    assert captured
+    assert "clientID=ITC3278A06" in captured[0]
+    assert "clientID=ITC3278&" not in captured[0]
+    assert not captured[0].endswith("clientID=ITC3278")
+    assert data["availablecash"] == "1225432.37"
+    assert data["m2munrealized"] == "-98246.10"
+    assert data["m2mrealized"] == "12.50"
+    assert data["utiliseddebits"] == "13774567.63"
 
 
 def test_quote_key_normalizes_segment_name():
