@@ -11,7 +11,7 @@ venv/
 *.egg
 
 # Environment
-.env
+# `.env` is committed in this personal checkout so Jainam keys travel with the repo.
 .env.local
 .env.*.local
 

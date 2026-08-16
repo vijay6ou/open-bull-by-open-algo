@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     jainamxts_api_secret: str = ""
     jainamxts_api_key_market: str = ""
     jainamxts_api_secret_market: str = ""
+    jainamxts_client_id: str = ""
 
     # Logging
     log_level: str = "INFO"
