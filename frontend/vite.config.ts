@@ -30,6 +30,10 @@ export default defineConfig({
       "/health": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/upstox/": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/zerodha/": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/fyers/": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/dhan/": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/angel/": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/jainamxts/": { target: "http://127.0.0.1:8000", changeOrigin: true },
       // Strategy module WebSocket — proxied with ws:true so the upgrade
       // handshake is forwarded to the backend. Without this Vite serves
       // the SPA's index.html for /ws/strategy/{id} and the browser sees
