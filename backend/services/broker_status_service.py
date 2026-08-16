@@ -33,11 +33,14 @@ def ping_broker(
         "user_id": None,
         "trading_client_id": None,
         "latency_ms": None,
+        "error_code": "no_session",
+        "http_status": None,
         "message": "Not connected",
         "checked_at": _now_iso(),
     }
     if not broker or not auth_token:
         payload["token_valid"] = False
+        payload["error_code"] = "no_session"
         payload["message"] = "No broker session"
         return payload
 
@@ -53,6 +56,8 @@ def ping_broker(
                 "user_id",
                 "trading_client_id",
                 "message",
+                "error_code",
+                "http_status",
             ):
                 if key in result:
                     payload[key] = result[key]
@@ -70,10 +75,13 @@ def ping_broker(
         payload["latency_ms"] = int((time.perf_counter() - started) * 1000)
         if margin:
             payload["connected"] = True
+            payload["error_code"] = None
             payload["message"] = "pong"
         else:
+            payload["error_code"] = "empty_funds"
             payload["message"] = "Broker funds call returned no data"
     except Exception as exc:
+        payload["error_code"] = "network_error"
         payload["message"] = str(exc)
         logger.warning("broker funds ping failed for %s: %s", broker, exc)
 

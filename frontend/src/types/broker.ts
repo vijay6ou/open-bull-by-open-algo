@@ -42,6 +42,8 @@ export interface BrokerConnectionStatus {
   user_id: string | null;
   trading_client_id: string | null;
   latency_ms: number | null;
+  error_code: string | null;
+  http_status: number | null;
   message: string;
   checked_at: string;
 }

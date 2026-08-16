@@ -1,8 +1,14 @@
-import { createContext, useContext, useCallback } from "react";
+import { createContext, useContext, useCallback, useEffect } from "react";
 import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe, login as loginApi, logout as logoutApi } from "@/api/auth";
 import type { UserInfo, LoginRequest } from "@/types/auth";
+import {
+  applyBrokerDisconnected,
+  broadcastSession,
+  goToLogin,
+  subscribeSession,
+} from "@/lib/sessionSync";
 
 interface AuthContextType {
   user: UserInfo | null;
@@ -24,6 +30,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 5 * 60 * 1000,
   });
 
+  useEffect(() => {
+    return subscribeSession((event) => {
+      if (event.type === "logout") {
+        queryClient.clear();
+        goToLogin();
+        return;
+      }
+      if (event.type === "broker-disconnected") {
+        applyBrokerDisconnected(queryClient);
+        return;
+      }
+      if (event.type === "broker-connected") {
+        queryClient.invalidateQueries({ queryKey: ["broker-status"] });
+        queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      }
+    });
+  }, [queryClient]);
+
   const login = useCallback(
     async (data: LoginRequest): Promise<UserInfo> => {
       await loginApi(data);
@@ -35,9 +59,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    await logoutApi();
-    queryClient.setQueryData(["auth", "me"], null);
-    queryClient.clear();
+    try {
+      await logoutApi();
+    } finally {
+      broadcastSession({ type: "logout" });
+      queryClient.clear();
+      goToLogin();
+    }
   }, [queryClient]);
 
   const refreshUser = useCallback(async () => {

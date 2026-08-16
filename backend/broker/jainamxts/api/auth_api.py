@@ -262,10 +262,13 @@ def ping_session(auth_token: str, config: dict | None = None) -> dict:
         "client_id": rms_id,
         "user_id": user_id,
         "trading_client_id": trading_client,
+        "error_code": None,
+        "http_status": None,
         "message": "Not connected",
     }
     if not interactive:
         base["token_valid"] = False
+        base["error_code"] = "no_token"
         base["message"] = "No interactive token"
         return base
 
@@ -284,23 +287,29 @@ def ping_session(auth_token: str, config: dict | None = None) -> dict:
         latency_ms = int((time.perf_counter() - started) * 1000)
         payload = response.json() if response.content else {}
     except Exception as exc:
+        base["error_code"] = "network_error"
         base["message"] = f"Broker ping failed: {exc}"
         logger.warning("Jainam DMA ping error: %s", exc)
         return base
 
     base["latency_ms"] = latency_ms
+    base["http_status"] = response.status_code
     if not isinstance(payload, dict):
+        base["error_code"] = "bad_response"
         base["message"] = "Broker ping returned a non-JSON body"
         return base
 
     if xts_call_ok(payload) and response.status_code == 200:
         base["connected"] = True
+        base["error_code"] = None
         base["message"] = "pong"
         return base
 
     desc = payload.get("description") or payload.get("message") or "Broker ping failed"
+    code = payload.get("code")
+    base["error_code"] = str(code) if code else "broker_error"
     base["message"] = str(desc)
     if xts_token_invalid(payload, response.status_code):
         base["token_valid"] = False
-        logger.warning("Jainam DMA ping: invalid token (%s)", desc)
+        logger.warning("Jainam DMA ping: %s (%s)", code, desc)
     return base

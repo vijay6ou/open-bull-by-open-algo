@@ -5,8 +5,7 @@ import { toast } from "sonner";
 import { getPositions } from "@/api/dashboard";
 import { closeAllPositions } from "@/api/orders";
 import { placeOrder } from "@/api/optionchain";
-import { useBrokerStatus } from "@/components/layout/BrokerConnectionStatus";
-import { jainamxtsLogin } from "@/api/broker";
+import { useBrokerStatus, BrokerOfflinePanel } from "@/components/layout/BrokerConnectionStatus";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -157,30 +156,7 @@ export default function Positions() {
   }
 
   if (!connected) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="max-w-md space-y-3 rounded-md border border-rose-500/30 bg-rose-500/8 p-6 text-center">
-          <p className="text-sm font-semibold tracking-tight">
-            Broker disconnected
-          </p>
-          <p className="text-[13px] text-muted-foreground">
-            Positions are hidden until Jainam DMA answers a live ping.
-          </p>
-          <Button
-            onClick={async () => {
-              try {
-                await jainamxtsLogin();
-                await queryClient.invalidateQueries();
-              } catch {
-                /* header banner still offers reconnect */
-              }
-            }}
-          >
-            Reconnect
-          </Button>
-        </div>
-      </div>
-    );
+    return <BrokerOfflinePanel title="Broker disconnected" />;
   }
 
   if (isLoading) {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -16,8 +16,7 @@ import {
 } from "@/api/dashboard";
 import { listStrategies } from "@/api/strategy_module";
 import { cn } from "@/lib/utils";
-import { useBrokerStatus } from "@/components/layout/BrokerConnectionStatus";
-import { jainamxtsLogin } from "@/api/broker";
+import { useBrokerStatus, BrokerOfflinePanel } from "@/components/layout/BrokerConnectionStatus";
 import type {
   OrderbookItem,
   PositionItem,
@@ -794,7 +793,6 @@ function EmptyState({
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const status = useBrokerStatus();
   const connected = status.data?.connected === true;
   const { funds, positions, holdings, orders, trades, strategies } =
@@ -812,34 +810,7 @@ export default function Dashboard() {
   }
 
   if (!connected) {
-    const label = status.data?.display_name || status.data?.broker || "broker";
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="max-w-md space-y-3 rounded-md border border-rose-500/30 bg-rose-500/8 p-6 text-center">
-          <p className="text-sm font-semibold tracking-tight text-foreground">
-            {label} is disconnected
-          </p>
-          <p className="text-[13px] text-muted-foreground">
-            Funds and positions stay hidden until a live ping succeeds. A
-            dead session used to render as ₹0.00.
-          </p>
-          <button
-            type="button"
-            className="inline-flex h-9 items-center rounded-md bg-foreground px-3 text-sm font-medium text-background"
-            onClick={async () => {
-              try {
-                await jainamxtsLogin();
-                await queryClient.invalidateQueries();
-              } catch {
-                navigate("/broker/select");
-              }
-            }}
-          >
-            Reconnect
-          </button>
-        </div>
-      </div>
-    );
+    return <BrokerOfflinePanel />;
   }
 
   if (funds.isLoading) {

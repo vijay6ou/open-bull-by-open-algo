@@ -1,4 +1,5 @@
 import axios from "axios";
+import { broadcastSession, goToLogin } from "@/lib/sessionSync";
 
 const api = axios.create({
   baseURL: "",
@@ -20,7 +21,8 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const currentPath = window.location.pathname;
       if (!PUBLIC_PATHS.has(currentPath)) {
-        window.location.href = "/login";
+        broadcastSession({ type: "logout" });
+        goToLogin();
       }
     }
     return Promise.reject(error);

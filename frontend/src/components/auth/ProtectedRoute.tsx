@@ -7,7 +7,7 @@ interface ProtectedRouteProps {
   requiresBroker?: boolean;
 }
 
-export function ProtectedRoute({ children, requiresBroker = false }: ProtectedRouteProps) {
+export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -23,10 +23,6 @@ export function ProtectedRoute({ children, requiresBroker = false }: ProtectedRo
 
   if (!user) {
     return <Navigate to="/login" replace />;
-  }
-
-  if (requiresBroker && !user.broker_authenticated) {
-    return <Navigate to="/broker/select" replace />;
   }
 
   return <>{children}</>;

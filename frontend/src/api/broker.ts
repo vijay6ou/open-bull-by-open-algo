@@ -52,3 +52,8 @@ export async function getBrokerStatus(): Promise<BrokerConnectionStatus> {
   const response = await api.get<BrokerConnectionStatus>("/web/broker/status");
   return response.data;
 }
+
+export async function disconnectBroker(): Promise<BrokerConnectionStatus> {
+  const response = await api.post<BrokerConnectionStatus>("/web/broker/disconnect");
+  return response.data;
+}

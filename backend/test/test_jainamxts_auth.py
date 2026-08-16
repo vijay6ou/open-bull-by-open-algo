@@ -399,6 +399,8 @@ def test_ping_session_connected_and_invalid_token(monkeypatch):
     dead = ping_session(packed, {"client_id": "ITC3278A06"})
     assert dead["connected"] is False
     assert dead["token_valid"] is False
+    assert dead["error_code"] == "e-token-0001"
+    assert dead["http_status"] == 400
     assert "Invalid Token" in dead["message"]
 
 

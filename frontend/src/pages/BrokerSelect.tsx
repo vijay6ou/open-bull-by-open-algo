@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { listBrokers, getBrokerRedirectUrl, jainamxtsLogin } from "@/api/broker";
+import { broadcastSession } from "@/lib/sessionSync";
 
 export default function BrokerSelect() {
   const [redirecting, setRedirecting] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [confirmDma, setConfirmDma] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: brokers, isLoading, error } = useQuery({
     queryKey: ["brokers"],
@@ -24,8 +28,8 @@ export default function BrokerSelect() {
       if (response.kind === "internal") {
         navigate(response.url);
       } else if (response.kind === "direct") {
-        await jainamxtsLogin();
-        navigate("/dashboard");
+        setRedirecting(null);
+        setConfirmDma(true);
       } else {
         window.location.href = response.url;
       }
@@ -33,6 +37,26 @@ export default function BrokerSelect() {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setErrorMessage(axiosErr.response?.data?.detail ?? "Broker login failed. Please try again.");
       setRedirecting(null);
+    }
+  };
+
+  const connectDma = async () => {
+    setRedirecting("jainamxts");
+    setErrorMessage("");
+    try {
+      await jainamxtsLogin();
+      broadcastSession({ type: "broker-connected" });
+      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      await queryClient.invalidateQueries({ queryKey: ["broker-status"] });
+      navigate("/dashboard");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      setErrorMessage(
+        axiosErr.response?.data?.detail ?? "Jainam DMA login failed. Check the error and try again.",
+      );
+      setRedirecting(null);
+    } finally {
+      setConfirmDma(false);
     }
   };
 
@@ -63,8 +87,15 @@ export default function BrokerSelect() {
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-tight">Select Broker</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Choose a broker to authenticate with
+            Connecting takes the live Symphony session. If those keys are in
+            use elsewhere, that other app will be disconnected.
           </p>
+          <Link
+            to="/dashboard"
+            className="mt-2 inline-block text-xs font-medium text-muted-foreground underline-offset-2 hover:underline"
+          >
+            Continue without connecting
+          </Link>
           {errorMessage && (
             <div className="mt-3 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {errorMessage}
@@ -124,6 +155,15 @@ export default function BrokerSelect() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmDma}
+        onOpenChange={setConfirmDma}
+        title="Connect Jainam DMA?"
+        description="This logs in with the stored keys and can disconnect any other app already using the same Symphony session. OpenBull will not reconnect by itself afterwards."
+        confirmLabel="Connect"
+        loading={redirecting === "jainamxts"}
+        onConfirm={connectDma}
+      />
     </div>
   );
 }

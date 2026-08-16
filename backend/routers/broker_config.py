@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from backend.dependencies import get_db, get_current_user, _broker_config_dict
+from backend.dependencies import get_db, get_current_user, _broker_config_dict, invalidate_user_cache
 from backend.models.user import User
 from backend.models.auth import BrokerAuth
 from backend.models.broker_config import BrokerConfig
@@ -104,6 +105,40 @@ async def broker_connection_status(
         return ping_broker(None, broker_name)
 
     return await run_in_threadpool(ping_broker, auth_token, broker_name, config)
+
+
+@router.post("/disconnect")
+async def disconnect_broker(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Drop the local broker session without logging into Symphony again.
+
+    Other apps using the same keys keep their session. This app stops
+    pinging and will not auto-reconnect.
+    """
+    result = await db.execute(
+        select(BrokerAuth).where(
+            BrokerAuth.user_id == user.id,
+            BrokerAuth.is_revoked == False,
+        )
+    )
+    revoked = 0
+    for row in result.scalars().all():
+        row.is_revoked = True
+        revoked += 1
+    await db.commit()
+    await invalidate_user_cache(user.id)
+    logger.info("User %s disconnected broker session (revoked=%s)", user.username, revoked)
+    return {
+        "status": "success",
+        "connected": False,
+        "token_valid": False,
+        "error_code": "disconnected",
+        "http_status": None,
+        "message": "Disconnected here. Session was not renewed, so other apps can keep using the keys.",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/credentials/{broker_name}", response_model=BrokerConfigResponse)
