@@ -216,9 +216,9 @@ def transform_positions_data(positions_data) -> list[dict]:
             "exchange": exchange,
             "product": position.get("ProductType", ""),
             "quantity": int(qty),
-            "average_price": f"{avg:.2f}",
-            "ltp": ltp,
-            "pnl": pnl,
+            "average_price": round(avg, 2),
+            "ltp": round(ltp, 2),
+            "pnl": round(pnl, 2),
         })
     return out
 

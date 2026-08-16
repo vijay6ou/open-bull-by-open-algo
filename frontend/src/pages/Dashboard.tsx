@@ -239,8 +239,8 @@ function PositionsSnapshot({
   const sorted = useMemo(
     () =>
       [...positions]
-        .filter((p) => p.quantity !== 0)
-        .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl))
+        .filter((p) => num(p.quantity) !== 0)
+        .sort((a, b) => Math.abs(num(b.pnl)) - Math.abs(num(a.pnl)))
         .slice(0, 6),
     [positions]
   );
@@ -291,19 +291,19 @@ function PositionsSnapshot({
                     </span>
                   </div>
                   <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
-                    {p.quantity > 0 ? "LONG" : "SHORT"}{" "}
-                    {Math.abs(p.quantity).toLocaleString("en-IN")} · avg{" "}
-                    {p.average_price.toFixed(2)} · ltp {p.ltp.toFixed(2)}
+                    {num(p.quantity) > 0 ? "LONG" : "SHORT"}{" "}
+                    {Math.abs(num(p.quantity)).toLocaleString("en-IN")} · avg{" "}
+                    {num(p.average_price).toFixed(2)} · ltp {num(p.ltp).toFixed(2)}
                   </p>
                 </div>
                 <div className="text-right">
                   <p
                     className={cn(
                       "text-sm font-semibold tabular-nums",
-                      pnlColor(p.pnl)
+                      pnlColor(num(p.pnl))
                     )}
                   >
-                    {withSign(p.pnl, formatCompactINR)}
+                    {withSign(num(p.pnl), formatCompactINR)}
                   </p>
                 </div>
               </li>
@@ -563,7 +563,7 @@ function RecentTrades({
                   <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
                     {t.quantity}{" "}
                     <span className="text-muted-foreground/70">@</span>{" "}
-                    {t.average_price.toFixed(2)} · {t.product}
+                    {num(t.average_price).toFixed(2)} · {t.product}
                   </p>
                 </div>
                 <p className="text-[11px] font-medium text-muted-foreground tabular-nums">

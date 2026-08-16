@@ -266,4 +266,6 @@ def test_map_position_data_dealer_payload():
     assert rows[0]["exchange"] == "NFO"
     assert rows[0]["symbol"]
     assert rows[0]["pnl"] == -4940.0
+    assert rows[0]["average_price"] == 120.5
+    assert isinstance(rows[0]["average_price"], float)
 

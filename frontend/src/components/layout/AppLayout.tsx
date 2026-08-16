@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { MasterContractStatus } from "@/components/layout/MasterContractStatus";
 import { TradingModeSwitch } from "@/components/layout/TradingModeSwitch";
 import { SandboxBanner } from "@/components/layout/SandboxBanner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // ---------------------------------------------------------------------------
 // Nav model
@@ -539,7 +540,9 @@ export function AppLayout() {
 
       {/* Page content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-6">
-        <Outlet />
+        <ErrorBoundary label="Page">
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

@@ -27,6 +27,11 @@ import {
 } from "@/components/ui/table";
 import type { PositionItem } from "@/types/order";
 
+function n(value: unknown): number {
+  const parsed = typeof value === "number" ? value : parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getPnlColor(value: number): string {
   if (value > 0) return "text-green-600 dark:text-green-400";
   if (value < 0) return "text-red-600 dark:text-red-400";
@@ -38,7 +43,7 @@ function getPnlColor(value: number): string {
  *  session boundary so the user can see the round trip — they're not
  *  re-closeable. */
 function isCloseable(p: PositionItem): boolean {
-  return (p.quantity ?? 0) !== 0;
+  return n(p.quantity) !== 0;
 }
 
 /** Pending confirm state — `null` = no dialog open. */
@@ -178,9 +183,9 @@ export default function Positions() {
         value: (r) =>
           r.quantity > 0 ? "LONG" : r.quantity < 0 ? "SHORT" : "FLAT",
       },
-      { header: "Average Price", value: (r) => r.average_price.toFixed(2) },
-      { header: "LTP", value: (r) => r.ltp.toFixed(2) },
-      { header: "P&L", value: (r) => r.pnl.toFixed(2) },
+      { header: "Average Price", value: (r) => n(r.average_price).toFixed(2) },
+      { header: "LTP", value: (r) => n(r.ltp).toFixed(2) },
+      { header: "P&L", value: (r) => n(r.pnl).toFixed(2) },
     ];
     downloadCsv({ filename: "positions", columns, rows });
     toast.success(`Exported ${rows.length} position${rows.length === 1 ? "" : "s"} to CSV`);
@@ -279,16 +284,16 @@ export default function Positions() {
                       <TableCell className="font-medium">{pos.symbol}</TableCell>
                       <TableCell>{pos.exchange}</TableCell>
                       <TableCell>{pos.product}</TableCell>
-                      <TableCell className="text-right">{pos.quantity}</TableCell>
+                      <TableCell className="text-right">{n(pos.quantity)}</TableCell>
                       <TableCell className="text-right">
-                        {pos.average_price.toFixed(2)}
+                        {n(pos.average_price).toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {pos.ltp.toFixed(2)}
+                        {n(pos.ltp).toFixed(2)}
                       </TableCell>
-                      <TableCell className={`text-right font-medium ${getPnlColor(pos.pnl)}`}>
-                        {pos.pnl >= 0 ? "+" : ""}
-                        {pos.pnl.toFixed(2)}
+                      <TableCell className={`text-right font-medium ${getPnlColor(n(pos.pnl))}`}>
+                        {n(pos.pnl) >= 0 ? "+" : ""}
+                        {n(pos.pnl).toFixed(2)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
