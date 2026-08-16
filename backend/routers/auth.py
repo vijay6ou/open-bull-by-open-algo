@@ -2,13 +2,12 @@ import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.database import async_session
-from backend.dependencies import get_db, get_current_user, invalidate_user_cache, _broker_config_dict
+from backend.dependencies import get_db, get_current_user, invalidate_user_cache
 from backend.limiter import limiter
 from backend.models.user import User
 from backend.models.auth import BrokerAuth, ApiKey
@@ -17,7 +16,7 @@ from backend.models.audit import LoginAttempt, ActiveSession
 from backend.schemas.auth import SetupRequest, LoginRequest, AuthResponse, UserInfo
 from backend.security import (
     hash_password, verify_password, check_needs_rehash, create_access_token,
-    generate_api_key, hash_api_key, encrypt_value, decrypt_value,
+    generate_api_key, hash_api_key, encrypt_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,62 +73,14 @@ async def _resume_broker_if_valid(
     user: User,
     broker_auth: BrokerAuth | None,
 ) -> str | None:
-    """Validate a stored broker access_token with a lightweight funds call.
+    """Stamp the JWT broker claim from a stored session row.
 
-    Returns the broker_name to stamp into the JWT if the broker still accepts
-    the token. If the token is rejected (expired/revoked upstream), revokes
-    the stale BrokerAuth row, clears cached context, and returns None so the
-    user is pushed back through /broker/select -> OAuth on the next request.
+    Do not ping Symphony here — a live round-trip blocks OpenBull login and
+    can loop the UI. Dashboard ping reports connected vs error once.
     """
     if not broker_auth:
         return None
-
-    candidate_broker = broker_auth.broker_name
-    try:
-        auth_token = decrypt_value(broker_auth.access_token)
-
-        cfg_result = await db.execute(
-            select(BrokerConfig).where(
-                BrokerConfig.user_id == user.id,
-                BrokerConfig.broker_name == candidate_broker,
-            )
-        )
-        broker_cfg = cfg_result.scalar_one_or_none()
-        broker_config = _broker_config_dict(broker_cfg)
-
-        from backend.services.broker_status_service import ping_broker
-
-        status = await run_in_threadpool(
-            ping_broker, auth_token, candidate_broker, broker_config
-        )
-    except Exception as exc:
-        logger.warning(
-            "Broker session resume check failed for user %s (%s): %s",
-            user.username, candidate_broker, exc,
-        )
-        return None
-
-    if status.get("connected"):
-        logger.info(
-            "Resumed broker session for user %s on %s (%sms)",
-            user.username, candidate_broker, status.get("latency_ms"),
-        )
-        return candidate_broker
-
-    if status.get("token_valid") is False:
-        logger.info(
-            "Stored broker token for user %s on %s is no longer valid; revoking",
-            user.username, candidate_broker,
-        )
-        broker_auth.is_revoked = True
-        await invalidate_user_cache(user.id)
-        return None
-
-    logger.warning(
-        "Broker ping failed for user %s on %s (%s); keeping session",
-        user.username, candidate_broker, status.get("message"),
-    )
-    return candidate_broker
+    return broker_auth.broker_name
 
 
 @router.post("/login", response_model=AuthResponse)

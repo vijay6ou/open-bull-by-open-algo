@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { checkSetup } from "@/api/auth";
+import { clearStayOnLogin, shouldStayOnLogin } from "@/lib/sessionSync";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -18,6 +19,7 @@ export default function Login() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (shouldStayOnLogin()) return;
     if (user) {
       navigate(user.broker_authenticated ? "/dashboard" : "/broker/select");
     }
@@ -36,6 +38,7 @@ export default function Login() {
 
     try {
       const userInfo = await login({ username, password });
+      clearStayOnLogin();
       if (userInfo.broker_authenticated) {
         navigate("/dashboard");
       } else {

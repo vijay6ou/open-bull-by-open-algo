@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   disconnectBroker,
@@ -25,24 +25,15 @@ const CONNECT_WARNING =
   "This logs in to Jainam DMA with the stored keys and can disconnect any other app that is already using the same session. OpenBull will not reconnect by itself after that.";
 
 export function useBrokerStatus() {
-  const query = useQuery({
+  return useQuery({
     queryKey: ["broker-status"],
     queryFn: getBrokerStatus,
     retry: false,
     refetchOnWindowFocus: false,
-    staleTime: 10_000,
-    // Heartbeat only while connected. A failed ping must not retry forever.
-    refetchInterval: (q) => (q.state.data?.connected ? 15_000 : false),
+    refetchOnReconnect: false,
+    refetchInterval: false,
+    staleTime: Infinity,
   });
-  const wasConnected = useRef<boolean | null>(null);
-  useEffect(() => {
-    const connected = query.data?.connected === true;
-    if (wasConnected.current === true && !connected) {
-      broadcastSession({ type: "broker-disconnected" });
-    }
-    if (query.data) wasConnected.current = connected;
-  }, [query.data, query.data?.connected]);
-  return query;
 }
 
 function formatBrokerError(data?: BrokerConnectionStatus | null): string {

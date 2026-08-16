@@ -61,8 +61,10 @@ export default function Positions() {
   const { data: positions, isLoading, error } = useQuery({
     queryKey: ["positions"],
     queryFn: getPositions,
-    refetchInterval: 15000,
     enabled: connected,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
 
   /** Only show positions with non-zero quantity (matches openalgo /positions
@@ -144,13 +146,10 @@ export default function Positions() {
     onSettled: () => setConfirming(null),
   });
 
-  if (status.isLoading) {
+  if (!status.isFetched) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-primary" />
-          <p className="text-sm text-muted-foreground">Checking broker connection...</p>
-        </div>
+        <p className="text-sm text-muted-foreground">Checking broker once…</p>
       </div>
     );
   }

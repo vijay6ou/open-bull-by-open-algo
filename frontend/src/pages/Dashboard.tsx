@@ -110,41 +110,53 @@ function useDashboardData(enabled: boolean) {
   const funds = useQuery({
     queryKey: ["dashboard"],
     queryFn: getDashboard,
-    refetchInterval: 30_000,
     enabled,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
   const positions = useQuery({
     queryKey: ["dashboard", "positions"],
     queryFn: getPositions,
-    refetchInterval: 15_000,
     staleTime: 10_000,
     enabled,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
   const holdings = useQuery({
     queryKey: ["dashboard", "holdings"],
     queryFn: getHoldings,
-    refetchInterval: 60_000,
     staleTime: 30_000,
     enabled,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
   const orders = useQuery({
     queryKey: ["dashboard", "orderbook"],
     queryFn: getOrderbook,
-    refetchInterval: 20_000,
     staleTime: 10_000,
     enabled,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
   const trades = useQuery({
     queryKey: ["dashboard", "tradebook"],
     queryFn: getTradebook,
-    refetchInterval: 30_000,
     staleTime: 15_000,
     enabled,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
   const strategies = useQuery({
     queryKey: ["dashboard", "strategies"],
     queryFn: () => listStrategies(),
-    refetchInterval: 30_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
     staleTime: 15_000,
   });
   return { funds, positions, holdings, orders, trades, strategies };
@@ -798,13 +810,10 @@ export default function Dashboard() {
   const { funds, positions, holdings, orders, trades, strategies } =
     useDashboardData(connected);
 
-  if (status.isLoading) {
+  if (!status.isFetched) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-primary" />
-          <p className="text-sm text-muted-foreground">Checking broker connection…</p>
-        </div>
+        <p className="text-sm text-muted-foreground">Checking broker once…</p>
       </div>
     );
   }

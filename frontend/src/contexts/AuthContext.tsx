@@ -6,7 +6,9 @@ import type { UserInfo, LoginRequest } from "@/types/auth";
 import {
   applyBrokerDisconnected,
   broadcastSession,
+  clearStayOnLogin,
   goToLogin,
+  markStayOnLogin,
   subscribeSession,
 } from "@/lib/sessionSync";
 
@@ -51,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (data: LoginRequest): Promise<UserInfo> => {
       await loginApi(data);
+      clearStayOnLogin();
       const userInfo = await getMe();
       queryClient.setQueryData(["auth", "me"], userInfo);
       return userInfo;
@@ -59,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    markStayOnLogin();
     try {
       await logoutApi();
     } finally {

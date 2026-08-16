@@ -109,3 +109,29 @@ export function goToLogin(): void {
     window.location.replace("/login");
   }
 }
+
+export const STAY_ON_LOGIN_KEY = "openbull-stay-on-login";
+
+export function markStayOnLogin(): void {
+  try {
+    sessionStorage.setItem(STAY_ON_LOGIN_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearStayOnLogin(): void {
+  try {
+    sessionStorage.removeItem(STAY_ON_LOGIN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function shouldStayOnLogin(): boolean {
+  try {
+    return sessionStorage.getItem(STAY_ON_LOGIN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}

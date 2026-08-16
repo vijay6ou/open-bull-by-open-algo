@@ -282,7 +282,7 @@ def ping_session(auth_token: str, config: dict | None = None) -> dict:
         response = client.get(
             url,
             headers={"authorization": interactive, "Content-Type": "application/json"},
-            timeout=8.0,
+            timeout=3.0,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
         payload = response.json() if response.content else {}
