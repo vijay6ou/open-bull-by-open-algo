@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 import requests
 import socketio
 
-from backend.broker.jainamxts.baseurl import BASE_URL, MARKET_DATA_URL
+from backend.broker.jainamxts.baseurl import get_base_url, get_market_data_url
 
 
 class JainamXTSWebSocketClient:
@@ -18,15 +18,10 @@ class JainamXTSWebSocketClient:
     """
 
     # Base URL
-    BASE_URL = BASE_URL
+    BASE_URL = get_base_url()
 
-    # Socket.IO endpoints - Updated based on XTS API documentation
-    # JainamXTS only has /apibinarymarketdata endpoint (no /apimarketdata)
+    # Socket.IO endpoints — DMA Symphony uses /apibinarymarketdata
     SOCKET_PATH = "/apibinarymarketdata/socket.io"
-    API_BASE_URL = f"{MARKET_DATA_URL}/instruments/subscription"
-    API_UNSUBSCRIBE_URL = (
-        f"{MARKET_DATA_URL}/instruments/subscription"  # Same endpoint, different method
-    )
 
     # Available Actions
     SUBSCRIBE_ACTION = 1
@@ -57,7 +52,10 @@ class JainamXTSWebSocketClient:
         self.api_key = api_key
         self.api_secret = api_secret
         self.user_id = user_id
-        self.base_url = base_url or self.BASE_URL
+        self.base_url = base_url or get_base_url()
+        market = get_market_data_url()
+        self.API_BASE_URL = f"{market}/instruments/subscription"
+        self.API_UNSUBSCRIBE_URL = f"{market}/instruments/subscription"
 
         # Authentication tokens
         self.market_data_token = None
@@ -133,7 +131,7 @@ class JainamXTSWebSocketClient:
             login_payload = {
                 "appKey": self.api_key,
                 "secretKey": self.api_secret,
-                "source": "WebAPI",
+                "source": "WEBAPI",
             }
 
             headers = {"Content-Type": "application/json"}

@@ -73,6 +73,10 @@ async def get_broker_credentials(
 
     extra = config.extra_config or {}
     client_id = extra.get("client_id") or None
+    if broker_name == "jainamxts" and not client_id:
+        from backend.broker.jainamxts.xts_auth import resolve_client_id
+
+        client_id = resolve_client_id({}) or None
     market_key = extra.get("api_key_market") or ""
     market_secret = extra.get("api_secret_market") or ""
     if market_key:
@@ -146,7 +150,7 @@ async def save_broker_credentials(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Jainam XTS requires Market Data API key and secret "
+                    "Jainam DMA requires Market Data API key and secret "
                     "(or set BROKER_API_KEY_MARKET / BROKER_API_SECRET_MARKET in .env)."
                 ),
             )
@@ -154,6 +158,10 @@ async def save_broker_credentials(
     final_client_id = data.client_id or (
         (existing.extra_config or {}).get("client_id") if existing else None
     )
+    if data.broker_name == "jainamxts" and not final_client_id:
+        from backend.broker.jainamxts.xts_auth import resolve_client_id
+
+        final_client_id = resolve_client_id({}) or None
     if data.broker_name == "dhan" and not final_client_id:
         raise HTTPException(status_code=400, detail="Dhan requires a Client ID.")
 
@@ -165,8 +173,8 @@ async def save_broker_credentials(
         if data.redirect_url:
             existing.redirect_url = data.redirect_url
         extra = dict(existing.extra_config or {})
-        if data.client_id:
-            extra["client_id"] = data.client_id
+        if final_client_id:
+            extra["client_id"] = final_client_id
         if market_key:
             extra["api_key_market"] = encrypt_value(market_key)
         if market_secret:
@@ -176,8 +184,8 @@ async def save_broker_credentials(
         flag_modified(existing, "extra_config")
     else:
         extra = {}
-        if data.client_id:
-            extra["client_id"] = data.client_id
+        if final_client_id:
+            extra["client_id"] = final_client_id
         if market_key:
             extra["api_key_market"] = encrypt_value(market_key)
         if market_secret:

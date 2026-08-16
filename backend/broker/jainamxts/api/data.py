@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from backend.broker.jainamxts.api.auth_api import get_feed_token as refresh_feed_token
-from backend.broker.jainamxts.baseurl import MARKET_DATA_URL
+from backend.broker.jainamxts.baseurl import get_market_data_url
 from backend.broker.jainamxts.xts_auth import split_auth
 from backend.broker.upstox.mapping.order_data import (
     get_brsymbol_from_cache,
@@ -72,7 +72,7 @@ _QUOTE_DELAY = 0.1
 
 
 def _feed(auth_token: str) -> str:
-    _, feed, _ = split_auth(auth_token)
+    _, feed, _, _ = split_auth(auth_token)
     return feed or split_auth(auth_token)[0]
 
 
@@ -85,7 +85,7 @@ def _empty_quote() -> dict:
 
 def _api(endpoint: str, auth_token: str, method: str = "GET", payload=None, params=None) -> dict:
     headers = {"authorization": _feed(auth_token), "Content-Type": "application/json"}
-    url = f"{MARKET_DATA_URL}{endpoint}"
+    url = f"{get_market_data_url()}{endpoint}"
     client = get_httpx_client()
     if method.upper() == "GET":
         response = client.get(url, headers=headers, params=params)
@@ -105,9 +105,9 @@ def _maybe_refresh(auth_token: str, config: dict | None, error_msg: str) -> str 
     if err or not new_feed:
         logger.error("Failed to refresh Jainam feed token: %s", err)
         return None
-    interactive, _, user_id = split_auth(auth_token)
+    interactive, _, user_id, client_id = split_auth(auth_token)
     from backend.broker.jainamxts.xts_auth import pack_auth
-    return pack_auth(interactive, new_feed, user_id)
+    return pack_auth(interactive, new_feed, user_id, client_id)
 
 
 def _instrument(symbol: str, exchange: str) -> dict:

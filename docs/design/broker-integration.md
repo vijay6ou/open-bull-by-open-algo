@@ -1,6 +1,6 @@
 # Broker Integration Guide
 
-How to add a new broker plugin to OpenBull. Six plugins ship today (Upstox, Zerodha, Angel One, Dhan, Fyers, Jainam XTS) and follow the same shape — copy the closest one and adapt.
+How to add a new broker plugin to OpenBull. Six plugins ship today (Upstox, Zerodha, Angel One, Dhan, Fyers, Jainam DMA) and follow the same shape — copy the closest one and adapt.
 
 ## Directory Structure
 
@@ -316,7 +316,7 @@ When in doubt, read the closest existing broker:
 | Fyers | auth_code | HSM binary | Custom binary parser + retry-on-429 patterns |
 | Angel | credentials + TOTP | SmartStream binary | TOTP / non-OAuth flow |
 | Dhan | static token | Dhan binary | Token-only auth, simpler flow |
-| Jainam XTS | dealer credentials (Order + Market keys) | Socket.IO binary | XTS dual-API keys, OpenAlgo `BROKER_API_KEY*` env fallback |
+| Jainam DMA | hostlookup + WEBAPI (Order + Market keys, clientID) | Socket.IO binary | Symphony DMA (`smpa.jainam.in`), OpenAlgo `jainam_prop` / Apex Fo |
 
 ## Testing the New Broker
 

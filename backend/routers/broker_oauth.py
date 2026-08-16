@@ -85,15 +85,15 @@ async def broker_redirect(
     )
     config = result.scalar_one_or_none()
 
-    # Jainam XTS: dealer login with stored Order + Market API keys (or the
-    # same OpenAlgo BROKER_API_KEY* env vars). No OAuth round-trip.
+    # Jainam DMA: hostlookup + WEBAPI dealer login with Order + Market keys
+    # (or the same OpenAlgo BROKER_API_KEY* env vars). No OAuth round-trip.
     if broker == "jainamxts":
         from backend.broker.jainamxts.xts_auth import env_order_keys_present
 
         if not config and not env_order_keys_present():
             raise HTTPException(
                 status_code=400,
-                detail="Broker not configured. Please add Jainam XTS credentials first.",
+                detail="Broker not configured. Please add Jainam DMA credentials first.",
             )
         return {"url": "/jainamxts/login", "kind": "direct"}
 
@@ -258,12 +258,12 @@ async def jainamxts_login(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Dealer login for Jainam XTS using stored Order + Market API keys."""
+    """Dealer login for Jainam DMA using stored Order + Market API keys."""
     new_token, error = await _finalize_broker_auth(
         "jainamxts", "jainamxts", user.id, user.username, request, db
     )
     if not new_token:
-        raise HTTPException(status_code=400, detail=error or "Jainam XTS authentication failed")
+        raise HTTPException(status_code=400, detail=error or "Jainam DMA authentication failed")
 
     response.set_cookie(
         key="access_token",
@@ -327,19 +327,21 @@ async def _finalize_broker_auth(
         if broker_name == "jainamxts":
             from backend.broker.jainamxts.xts_auth import (
                 env_order_keys_present,
+                resolve_client_id,
                 resolve_market_keys,
                 resolve_order_keys,
             )
 
             if not env_order_keys_present():
                 return None, "broker_not_configured"
+
             order_key, order_secret = resolve_order_keys({})
             market_key, market_secret = resolve_market_keys({})
             config = {
                 "api_key": order_key,
                 "api_secret": order_secret,
                 "redirect_url": "",
-                "client_id": "",
+                "client_id": resolve_client_id({}),
                 "api_key_market": market_key,
                 "api_secret_market": market_secret,
             }
@@ -347,11 +349,16 @@ async def _finalize_broker_auth(
             return None, "broker_not_configured"
     else:
         extra = broker_cfg.extra_config or {}
+        client_id = extra.get("client_id", "")
+        if broker_name == "jainamxts" and not client_id:
+            from backend.broker.jainamxts.xts_auth import resolve_client_id
+
+            client_id = resolve_client_id({})
         config = {
             "api_key": decrypt_value(broker_cfg.api_key),
             "api_secret": decrypt_value(broker_cfg.api_secret) if broker_cfg.api_secret else "",
             "redirect_url": broker_cfg.redirect_url,
-            "client_id": extra.get("client_id", ""),
+            "client_id": client_id,
             "api_key_market": _decrypt_extra(extra.get("api_key_market")),
             "api_secret_market": _decrypt_extra(extra.get("api_secret_market")),
         }

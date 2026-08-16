@@ -84,20 +84,22 @@ const HELP_BY_BROKER: Record<string, BrokerHelp> = {
   },
   jainamxts: {
     apiKeyLabel: "Order API Key (appKey)",
-    apiKeyHint: "Interactive / order API appKey from the Jainam XTS dealer portal (same as OpenAlgo BROKER_API_KEY).",
+    apiKeyHint: "Interactive / order API appKey from Jainam DMA / Symphony (same as OpenAlgo BROKER_API_KEY).",
     apiSecretLabel: "Order API Secret (secretKey)",
     apiSecretHint: "Interactive / order API secretKey (same as OpenAlgo BROKER_API_SECRET).",
     redirectHint: "",
     showApiSecret: true,
     showRedirect: false,
-    showClientId: false,
+    showClientId: true,
+    clientIdLabel: "DMA Client ID",
+    clientIdHint: "Dealer clientID (e.g. ITC3278A06). Sent on every interactive call. Falls back to JAINAMXTS_CLIENT_ID in .env.",
     showMarketKeys: true,
     marketKeyLabel: "Market Data API Key (appKey)",
     marketKeyHint: "Market-data API appKey (same as OpenAlgo BROKER_API_KEY_MARKET).",
     marketSecretLabel: "Market Data API Secret (secretKey)",
     marketSecretHint: "Market-data API secretKey (same as OpenAlgo BROKER_API_SECRET_MARKET).",
     banner:
-      "Jainam XTS uses dealer login (no OAuth). Enter the same four keys as OpenAlgo / Apex Fo: Order appKey+secret and Market Data appKey+secret. If those are already in .env as BROKER_API_KEY*, you can save with the fields blank and click Login.",
+      "Jainam DMA (Symphony A: smpa.jainam.in:6543) — not retail XTS on jtrade.jainam.in. Login is hostlookup + WEBAPI session, same as OpenAlgo jainam_prop / Apex Fo. Enter Order + Market keys and Client ID, or leave blank if they are already in .env.",
   },
 };
 
@@ -173,7 +175,12 @@ export default function BrokerConfig() {
     }
     const isConfigured =
       brokers?.find((b) => b.name === selectedBroker)?.is_configured ?? false;
-    if (!isConfigured && help.showClientId && !clientId.trim()) {
+    if (
+      !isConfigured &&
+      help.showClientId &&
+      selectedBroker !== "jainamxts" &&
+      !clientId.trim()
+    ) {
       setError(`${help.clientIdLabel} is required for ${selectedBroker}.`);
       return;
     }
@@ -268,8 +275,10 @@ export default function BrokerConfig() {
                       type="text"
                       value={clientId}
                       onChange={(e) => setClientId(e.target.value)}
-                      placeholder="e.g. 1100123456"
-                      required={!isConfigured}
+                      placeholder={
+                        selectedBroker === "jainamxts" ? "e.g. ITC3278A06" : "e.g. 1100123456"
+                      }
+                      required={!isConfigured && selectedBroker !== "jainamxts"}
                     />
                     {help.clientIdHint && (
                       <p className="text-xs text-muted-foreground">

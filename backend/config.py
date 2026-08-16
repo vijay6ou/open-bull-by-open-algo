@@ -22,9 +22,10 @@ class Settings(BaseSettings):
     # Brokers
     valid_brokers: str = "upstox,zerodha,angel,dhan,fyers,jainamxts"
 
-    # Jainam XTS / OpenAlgo-compatible env fallbacks (optional).
-    # Same names as OpenAlgo so a copied .env works: BROKER_API_KEY,
-    # BROKER_API_SECRET, BROKER_API_KEY_MARKET, BROKER_API_SECRET_MARKET.
+    # Jainam DMA (Symphony) / OpenAlgo jainam_prop env fallbacks.
+    # Same names as OpenAlgo: BROKER_API_KEY, BROKER_API_SECRET,
+    # BROKER_API_KEY_MARKET, BROKER_API_SECRET_MARKET.
+    # Hosts: smpa/smpb/smpc.jainam.in — not retail XTS on jtrade.jainam.in.
     # Per-user Broker Configuration still wins when those fields are set.
     broker_api_key: str = ""
     broker_api_secret: str = ""
@@ -35,6 +36,8 @@ class Settings(BaseSettings):
     jainamxts_api_key_market: str = ""
     jainamxts_api_secret_market: str = ""
     jainamxts_client_id: str = ""
+    jainam_base_url: str = "https://smpa.jainam.in:6543"
+    jainam_active_symphony_server: str = "A"
 
     # Logging
     log_level: str = "INFO"

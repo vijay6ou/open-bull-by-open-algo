@@ -35,7 +35,7 @@ BSE_INDEX_TOKENS = {"1", "12"}
 class JainamXTSAdapter(BaseBrokerAdapter):
     def __init__(self, auth_token: str, broker_config: dict):
         super().__init__(auth_token, broker_config)
-        _, feed_token, user_id = split_auth(auth_token)
+        _, feed_token, user_id, _ = split_auth(auth_token)
         api_key, api_secret = resolve_market_keys(broker_config)
         self._api_key = api_key
         self._api_secret = api_secret

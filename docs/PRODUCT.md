@@ -14,7 +14,7 @@
 
 ## 1. What OpenBull Is
 
-OpenBull is an options-first trading platform that you run on your own infrastructure. It sits between a trader's tools — UIs, scripts, AI agents, third-party integrations — and the actual Indian broker APIs (Upstox, Zerodha, Angel One, Dhan, Fyers, Jainam XTS).
+OpenBull is an options-first trading platform that you run on your own infrastructure. It sits between a trader's tools — UIs, scripts, AI agents, third-party integrations — and the actual Indian broker APIs (Upstox, Zerodha, Angel One, Dhan, Fyers, Jainam DMA).
 
 It does three jobs:
 
@@ -49,7 +49,7 @@ OpenBull is not a SaaS. There is no central cloud component. You own your data, 
 | **Angel One** | Credentials + TOTP | SmartStream binary | Auto-download | Full |
 | **Dhan** | Static access token | Dhan binary | Auto-download | Full |
 | **Fyers** | OAuth (`auth_code`) | HSM binary (fyers v3) | Auto-download | Full |
-| **Jainam XTS** | Dealer login (Order + Market API keys) | Socket.IO (`xts-binary-packet`) | Auto-download | Full (margin calculator 501) |
+| **Jainam DMA** | Hostlookup + WEBAPI (Order + Market keys, clientID) | Socket.IO (`xts-binary-packet`) | Auto-download | Full (margin calculator 501) |
 
 Each broker is a self-contained plugin under `backend/broker/{name}/` — auth, orders, funds, data, margin, master-contract download, and a WebSocket adapter. Adding another broker is one folder plus a `plugin.json`. See [docs/design/broker-integration.md](design/broker-integration.md).
 

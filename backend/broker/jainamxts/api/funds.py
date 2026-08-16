@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from backend.broker.jainamxts.baseurl import INTERACTIVE_URL
-from backend.broker.jainamxts.xts_auth import split_auth
+from backend.broker.jainamxts.baseurl import get_interactive_url
+from backend.broker.jainamxts.xts_auth import resolve_client_id, split_auth
 from backend.utils.httpx_client import get_httpx_client
 
 logger = logging.getLogger(__name__)
@@ -22,15 +22,20 @@ def _fmt(value) -> str:
 
 def get_margin_data(auth_token: str, config: dict | None = None) -> dict:
     """Fetch margin data. Returns OpenBull funds keys as strings."""
-    interactive, _, _ = split_auth(auth_token)
+    interactive, _, _, client_id = split_auth(auth_token)
     if not interactive:
         logger.error("Missing Jainam interactive token for funds call")
         return {}
 
+    client_id = client_id or resolve_client_id(config)
+    url = f"{get_interactive_url()}/user/balance"
+    if client_id:
+        url = f"{url}?clientID={client_id}"
+
     try:
         client = get_httpx_client()
         response = client.get(
-            f"{INTERACTIVE_URL}/user/balance",
+            url,
             headers={"authorization": interactive, "Content-Type": "application/json"},
         )
         margin_data = response.json()

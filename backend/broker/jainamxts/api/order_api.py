@@ -10,14 +10,14 @@ import logging
 import threading
 import time
 
-from backend.broker.jainamxts.baseurl import INTERACTIVE_URL
+from backend.broker.jainamxts.baseurl import get_interactive_url
 from backend.broker.jainamxts.mapping.transform_data import (
     map_exchange,
     map_product_type,
     transform_data,
     transform_modify_order_data,
 )
-from backend.broker.jainamxts.xts_auth import split_auth
+from backend.broker.jainamxts.xts_auth import resolve_client_id, split_auth
 from backend.broker.upstox.mapping.order_data import (
     get_brsymbol_from_cache,
     get_token_from_cache,
@@ -28,8 +28,21 @@ logger = logging.getLogger(__name__)
 
 
 def _interactive(auth: str) -> str:
-    token, _, _ = split_auth(auth)
+    token, _, _, _ = split_auth(auth)
     return token
+
+
+def _client_id(auth: str) -> str:
+    _, _, _, client_id = split_auth(auth)
+    return client_id or resolve_client_id({})
+
+
+def _with_client(endpoint: str, auth: str) -> str:
+    client_id = _client_id(auth)
+    if not client_id:
+        return endpoint
+    sep = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{sep}clientID={client_id}"
 
 
 def get_api_response(endpoint: str, auth: str, method: str = "GET", payload=None) -> dict:
@@ -37,7 +50,11 @@ def get_api_response(endpoint: str, auth: str, method: str = "GET", payload=None
         "authorization": _interactive(auth),
         "Content-Type": "application/json",
     }
-    url = f"{INTERACTIVE_URL}{endpoint}"
+    url = f"{get_interactive_url()}{_with_client(endpoint, auth)}"
+    if isinstance(payload, dict):
+        client_id = _client_id(auth)
+        if client_id and "clientID" not in payload:
+            payload = {**payload, "clientID": client_id}
     client = get_httpx_client()
     if method == "GET":
         response = client.get(url, headers=headers)
@@ -57,15 +74,30 @@ def get_api_response(endpoint: str, auth: str, method: str = "GET", payload=None
 
 
 def get_order_book(auth: str) -> dict:
-    return get_api_response("/orders", auth)
+    data = get_api_response("/orders", auth)
+    if data.get("type") != "success":
+        dealer = get_api_response("/orders/dealerorderbook", auth)
+        if dealer.get("type") == "success":
+            return dealer
+    return data
 
 
 def get_trade_book(auth: str) -> dict:
-    return get_api_response("/orders/trades", auth)
+    data = get_api_response("/orders/trades", auth)
+    if data.get("type") != "success":
+        dealer = get_api_response("/orders/dealertradebook", auth)
+        if dealer.get("type") == "success":
+            return dealer
+    return data
 
 
 def get_positions(auth: str) -> dict:
-    return get_api_response("/portfolio/positions?dayOrNet=NetWise", auth)
+    data = get_api_response("/portfolio/positions?dayOrNet=NetWise", auth)
+    if data.get("type") != "success":
+        dealer = get_api_response("/portfolio/dealerpositions?dayOrNet=NetWise", auth)
+        if dealer.get("type") == "success":
+            return dealer
+    return data
 
 
 def get_holdings(auth: str) -> dict:
@@ -129,10 +161,15 @@ def place_order_api(data: dict, auth: str) -> tuple:
         newdata = transform_data(data, token)
 
     client = get_httpx_client()
+    payload = newdata if isinstance(newdata, dict) else newdata
+    if isinstance(payload, dict):
+        client_id = _client_id(auth)
+        if client_id:
+            payload = {**payload, "clientID": client_id}
     response = client.post(
-        f"{INTERACTIVE_URL}/orders",
+        f"{get_interactive_url()}{_with_client('/orders', auth)}",
         headers={"authorization": _interactive(auth), "Content-Type": "application/json"},
-        json=newdata,
+        json=payload,
     )
     response.status = response.status_code
     try:
@@ -223,7 +260,7 @@ def close_all_positions(current_api_key, auth):
 def cancel_order(orderid: str, auth: str) -> tuple:
     client = get_httpx_client()
     response = client.delete(
-        f"{INTERACTIVE_URL}/orders?appOrderID={orderid}",
+        f"{get_interactive_url()}{_with_client(f'/orders?appOrderID={orderid}', auth)}",
         headers={"authorization": _interactive(auth), "Content-Type": "application/json"},
     )
     response.status = response.status_code
@@ -239,9 +276,12 @@ def cancel_order(orderid: str, auth: str) -> tuple:
 def modify_order(data: dict, auth: str) -> tuple:
     token = get_token_from_cache(data["symbol"], data["exchange"]) or ""
     transformed = transform_modify_order_data(data, token)
+    client_id = _client_id(auth)
+    if client_id:
+        transformed = {**transformed, "clientID": client_id}
     client = get_httpx_client()
     response = client.put(
-        f"{INTERACTIVE_URL}/orders",
+        f"{get_interactive_url()}{_with_client('/orders', auth)}",
         headers={"authorization": _interactive(auth), "Content-Type": "application/json"},
         json=transformed,
     )

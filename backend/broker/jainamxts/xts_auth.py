@@ -1,12 +1,11 @@
-"""Shared Jainam XTS token packing and credential resolution.
+"""Jainam DMA token packing and credential resolution.
 
-OpenBull stores a combined auth token so REST + streaming can recover
-interactive session, market-data feed token, and XTS userID:
+Combined auth token:
 
-    ``interactive_token:::feed_token:::user_id``
+    ``interactive_token:::feed_token:::user_id:::client_id``
 
-Market API keys live on the per-user BrokerConfig (extra_config) with
-OpenAlgo-compatible env fallbacks so the same keys work in both apps.
+DMA dealer calls need ``clientID`` (e.g. ITC3278A06) on every interactive
+request. Market + order keys fall back to OpenAlgo ``BROKER_API_KEY*`` names.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ TOKEN_SEP = ":::"
 
 
 def _settings_value(name: str) -> str:
-    """Read an optional key from OpenBull Settings (.env via pydantic)."""
     try:
         from backend.config import get_settings
 
@@ -26,20 +24,29 @@ def _settings_value(name: str) -> str:
         return ""
 
 
-def pack_auth(interactive_token: str, feed_token: str = "", user_id: str = "") -> str:
-    return f"{interactive_token}{TOKEN_SEP}{feed_token}{TOKEN_SEP}{user_id}"
+def pack_auth(
+    interactive_token: str,
+    feed_token: str = "",
+    user_id: str = "",
+    client_id: str = "",
+) -> str:
+    return (
+        f"{interactive_token}{TOKEN_SEP}{feed_token}"
+        f"{TOKEN_SEP}{user_id}{TOKEN_SEP}{client_id}"
+    )
 
 
-def split_auth(auth_token: str | None) -> tuple[str, str, str]:
-    """Return (interactive_token, feed_token, user_id)."""
+def split_auth(auth_token: str | None) -> tuple[str, str, str, str]:
+    """Return (interactive_token, feed_token, user_id, client_id)."""
     raw = auth_token or ""
     if TOKEN_SEP in raw:
         parts = raw.split(TOKEN_SEP)
         interactive = parts[0] if parts else ""
         feed = parts[1] if len(parts) > 1 else ""
         user_id = parts[2] if len(parts) > 2 else ""
-        return interactive, feed, user_id
-    return raw, "", ""
+        client_id = parts[3] if len(parts) > 3 else ""
+        return interactive, feed, user_id, client_id
+    return raw, "", "", ""
 
 
 def _first_nonempty(*values: str | None) -> str:
@@ -85,6 +92,17 @@ def resolve_market_keys(config: dict | None) -> tuple[str, str]:
         os.getenv("BROKER_API_SECRET_MARKET"),
     )
     return api_key, api_secret
+
+
+def resolve_client_id(config: dict | None) -> str:
+    cfg = config or {}
+    return _first_nonempty(
+        cfg.get("client_id"),
+        _settings_value("jainamxts_client_id"),
+        os.getenv("JAINAMXTS_CLIENT_ID"),
+        os.getenv("JAINAM_SYMPHONY_A_PRO_CLIENT_ID"),
+        os.getenv("JAINAM_SYMPHONY_A_NORMAL_CLIENT_ID"),
+    )
 
 
 def env_order_keys_present() -> bool:

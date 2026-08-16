@@ -14,7 +14,7 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.broker.jainamxts.baseurl import MARKET_DATA_URL
+from backend.broker.jainamxts.baseurl import get_market_data_url
 from backend.broker.jainamxts.xts_auth import split_auth
 from backend.utils.httpx_client import get_httpx_client
 
@@ -36,7 +36,7 @@ def _build_isolated_engine_and_session():
 def _auth_headers(auth_token: str | None) -> dict:
     headers = {"Content-Type": "application/json"}
     if auth_token:
-        _, feed, _ = split_auth(auth_token)
+        _, feed, _, _ = split_auth(auth_token)
         token = feed or split_auth(auth_token)[0]
         if token:
             headers["authorization"] = token
@@ -67,7 +67,7 @@ def download_csv_jainamxts_data(output_path):
     for segment in exchange_segments:
         payload = json.dumps({"exchangeSegmentList": [segment]})
         response = client.post(
-            f"{MARKET_DATA_URL}/instruments/master", headers=headers, content=payload
+            f"{get_market_data_url()}/instruments/master", headers=headers, content=payload
         )
         if response.status_code != 200:
             raise Exception(f"Failed to download {segment}. Status: {response.status_code}")
@@ -106,7 +106,7 @@ def fetch_index_list():
     index_data = []
 
     for segment in exchange_segments:
-        url = f"{MARKET_DATA_URL}/instruments/indexlist?exchangeSegment={segment}"
+        url = f"{get_market_data_url()}/instruments/indexlist?exchangeSegment={segment}"
         response = client.get(url, headers=headers)
 
         if response.status_code != 200:
