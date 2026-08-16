@@ -42,6 +42,8 @@ psql -U postgres -c "CREATE DATABASE openbull"
 
 ### 2. Configure environment
 
+There is no `.env` in git — it is local-only (listed in `.gitignore`). Create yours from the template:
+
 ```bash
 cp .env.example .env
 ```
@@ -53,6 +55,8 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Set the output as `APP_SECRET_KEY`; generate another for `ENCRYPTION_PEPPER`. Set `REDIS_URL` to your Redis instance (default `redis://127.0.0.1:6379/0`).
+
+For Jainam XTS, paste the same four OpenAlgo keys into that `.env` (`BROKER_API_KEY`, `BROKER_API_SECRET`, `BROKER_API_KEY_MARKET`, `BROKER_API_SECRET_MARKET`), or enter them in **Broker Configuration** after the app is running.
 
 ### 3. Install and run the backend
 
