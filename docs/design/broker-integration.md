@@ -1,6 +1,6 @@
 # Broker Integration Guide
 
-How to add a new broker plugin to OpenBull. Five plugins ship today (Upstox, Zerodha, Angel One, Dhan, Fyers) and follow the same shape — copy the closest one and adapt.
+How to add a new broker plugin to OpenBull. Six plugins ship today (Upstox, Zerodha, Angel One, Dhan, Fyers, Jainam XTS) and follow the same shape — copy the closest one and adapt.
 
 ## Directory Structure
 
@@ -249,7 +249,7 @@ The streaming adapter is registered with the WS proxy in `backend/websocket_prox
 Add the name to `VALID_BROKERS` in `.env`:
 
 ```env
-VALID_BROKERS=upstox,zerodha,angel,dhan,fyers,examplebroker
+VALID_BROKERS=upstox,zerodha,angel,dhan,fyers,jainamxts,examplebroker
 ```
 
 Restart the backend. The plugin loader will pick up the new directory on next startup. If `auth_url_template` is set, `/broker/select` will show the new broker as an option.
@@ -316,6 +316,7 @@ When in doubt, read the closest existing broker:
 | Fyers | auth_code | HSM binary | Custom binary parser + retry-on-429 patterns |
 | Angel | credentials + TOTP | SmartStream binary | TOTP / non-OAuth flow |
 | Dhan | static token | Dhan binary | Token-only auth, simpler flow |
+| Jainam XTS | dealer credentials (Order + Market keys) | Socket.IO binary | XTS dual-API keys, OpenAlgo `BROKER_API_KEY*` env fallback |
 
 ## Testing the New Broker
 

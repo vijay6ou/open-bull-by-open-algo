@@ -39,11 +39,16 @@ async def list_brokers(
     brokers = []
     for name, info in plugins.items():
         cfg = configs.get(name)
+        is_configured = cfg is not None
+        if name == "jainamxts" and not is_configured:
+            from backend.broker.jainamxts.xts_auth import env_order_keys_present
+
+            is_configured = env_order_keys_present()
         brokers.append(BrokerListItem(
             name=name,
             display_name=info.get("display_name", name),
             supported_exchanges=info.get("supported_exchanges", []),
-            is_configured=cfg is not None,
+            is_configured=is_configured,
             is_active=cfg.is_active if cfg else False,
             oauth_type=info.get("oauth_type", ""),
         ))
@@ -68,6 +73,18 @@ async def get_broker_credentials(
 
     extra = config.extra_config or {}
     client_id = extra.get("client_id") or None
+    market_key = extra.get("api_key_market") or ""
+    market_secret = extra.get("api_secret_market") or ""
+    if market_key:
+        try:
+            market_key = decrypt_value(market_key)
+        except Exception:
+            pass
+    if market_secret:
+        try:
+            market_secret = decrypt_value(market_secret)
+        except Exception:
+            pass
 
     return BrokerConfigResponse(
         broker_name=config.broker_name,
@@ -76,6 +93,8 @@ async def get_broker_credentials(
         redirect_url=config.redirect_url,
         is_active=config.is_active,
         client_id=client_id,
+        api_key_market_masked=_mask(market_key) if market_key else "",
+        api_secret_market_masked=_mask(market_secret) if market_secret else "",
     )
 
 
@@ -91,7 +110,7 @@ async def save_broker_credentials(
 
     plugin = plugins[data.broker_name]
     oauth_type = plugin.get("oauth_type", "")
-    needs_secret = oauth_type not in ("credentials",)
+    needs_secret = oauth_type not in ("credentials",) or data.broker_name == "jainamxts"
 
     result = await db.execute(
         select(BrokerConfig).where(
@@ -101,14 +120,36 @@ async def save_broker_credentials(
     )
     existing = result.scalar_one_or_none()
 
+    api_key = data.api_key
+    api_secret = data.api_secret
+    market_key = data.api_key_market
+    market_secret = data.api_secret_market
+    if data.broker_name == "jainamxts":
+        from backend.broker.jainamxts.xts_auth import resolve_market_keys, resolve_order_keys
+
+        env_order_key, env_order_secret = resolve_order_keys({})
+        env_market_key, env_market_secret = resolve_market_keys({})
+        api_key = api_key or env_order_key
+        api_secret = api_secret or env_order_secret
+        market_key = market_key or env_market_key
+        market_secret = market_secret or env_market_secret
+
     # Empty inputs on update are treated as "keep existing" so a user can
     # tweak (say) redirect_url without re-typing the secret. We only require
     # non-empty key/secret on first-time setup.
     if not existing:
-        if not data.api_key:
+        if not api_key:
             raise HTTPException(status_code=400, detail="API Key is required.")
-        if needs_secret and not data.api_secret:
+        if needs_secret and not api_secret:
             raise HTTPException(status_code=400, detail="API Secret is required.")
+        if data.broker_name == "jainamxts" and (not market_key or not market_secret):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Jainam XTS requires Market Data API key and secret "
+                    "(or set BROKER_API_KEY_MARKET / BROKER_API_SECRET_MARKET in .env)."
+                ),
+            )
 
     final_client_id = data.client_id or (
         (existing.extra_config or {}).get("client_id") if existing else None
@@ -117,25 +158,35 @@ async def save_broker_credentials(
         raise HTTPException(status_code=400, detail="Dhan requires a Client ID.")
 
     if existing:
-        if data.api_key:
-            existing.api_key = encrypt_value(data.api_key)
-        if data.api_secret:
-            existing.api_secret = encrypt_value(data.api_secret)
+        if api_key:
+            existing.api_key = encrypt_value(api_key)
+        if api_secret:
+            existing.api_secret = encrypt_value(api_secret)
         if data.redirect_url:
             existing.redirect_url = data.redirect_url
         extra = dict(existing.extra_config or {})
         if data.client_id:
             extra["client_id"] = data.client_id
+        if market_key:
+            extra["api_key_market"] = encrypt_value(market_key)
+        if market_secret:
+            extra["api_secret_market"] = encrypt_value(market_secret)
         existing.extra_config = extra
         # SQLAlchemy doesn't auto-detect mutations to JSONB dicts.
         flag_modified(existing, "extra_config")
     else:
-        extra = {"client_id": data.client_id} if data.client_id else {}
+        extra = {}
+        if data.client_id:
+            extra["client_id"] = data.client_id
+        if market_key:
+            extra["api_key_market"] = encrypt_value(market_key)
+        if market_secret:
+            extra["api_secret_market"] = encrypt_value(market_secret)
         db.add(BrokerConfig(
             user_id=user.id,
             broker_name=data.broker_name,
-            api_key=encrypt_value(data.api_key),
-            api_secret=encrypt_value(data.api_secret) if data.api_secret else "",
+            api_key=encrypt_value(api_key),
+            api_secret=encrypt_value(api_secret) if api_secret else "",
             redirect_url=data.redirect_url or "",
             is_active=False,
             extra_config=extra,

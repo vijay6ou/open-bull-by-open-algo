@@ -4,7 +4,7 @@ OpenBull is a self-hosted options trading platform for Indian markets. Multi-use
 
 ## Highlights
 
-- **Five broker plugins** fully wired end-to-end — Upstox, Zerodha, Angel One (SmartAPI), Dhan, Fyers. Each carries auth, orders, funds, history, depth, margin, and a streaming adapter feeding the unified WS proxy. Plug-and-play architecture: a new broker = one folder + a `plugin.json`.
+- **Six broker plugins** fully wired end-to-end — Upstox, Zerodha, Angel One (SmartAPI), Dhan, Fyers, Jainam XTS. Each carries auth, orders, funds, history, depth, margin, and a streaming adapter feeding the unified WS proxy. Plug-and-play architecture: a new broker = one folder + a `plugin.json`.
 - **Multi-user**, per-user broker credentials, JWT cookie auth, broker-token revalidation on session resume. OAuth callback redirects use the request hostname so cookies survive the round-trip even when the user mixes `127.0.0.1` and `localhost`.
 - **Live / Sandbox trading-mode toggle** — global setting; every order/info path dispatches through `dispatch_by_mode` so the same UI drives real or simulated orders. Sandbox engine simulates fills via live ticks (or a 5s polling fallback), EOD rollover, T+1 settlement, scheduled squareoff, daily P&L snapshots.
 - **Eight Plotly-backed analytics tools** + the **Strategy Builder + Portfolio** pair (multi-leg designer with **30 strategy templates** rendered as mini SVG payoff icons, live Greeks, At-Expiry / T+0 payoff curves with sigma bands and breakeven markers, Probability of Profit, real-time what-if sliders that drive both the marker dot and the T+0 curve, **Multi-Strike OI tab**, historical combined-premium chart on `lightweight-charts`, WS-streamed live P&L tab, **per-leg basket execute** with tick-snap pricing, save/reload, close-at-exit).
@@ -285,7 +285,7 @@ WS Proxy (asyncio + websockets)
     ⇅ ZeroMQ SUB <—— PUB ⇅
                           Broker Adapter (background thread)
                           ⇅ broker-native protocol
-                          Upstox protobuf v3 / Zerodha binary
+                          Upstox protobuf v3 / Zerodha binary / Jainam XTS Socket.IO
                                 ⇣
                           MarketDataCache singleton (every tick)
 ```
@@ -304,7 +304,9 @@ Selected — see `.env.example` for the full list.
 | `REDIS_URL` | Redis (cache + symtoken mirror) | `redis://127.0.0.1:6379/0` |
 | `FRONTEND_URL` | OAuth-redirect base (host substituted dynamically per request) | `http://127.0.0.1:5173` |
 | `CORS_ORIGINS` | Allowed origins, comma-separated | `http://127.0.0.1:5173,http://localhost:5173` |
-| `VALID_BROKERS` | Enabled broker plugins | `upstox,zerodha` |
+| `VALID_BROKERS` | Enabled broker plugins | `upstox,zerodha,angel,dhan,fyers,jainamxts` |
+| `BROKER_API_KEY` / `BROKER_API_SECRET` | Jainam XTS order API fallback (OpenAlgo names) | — |
+| `BROKER_API_KEY_MARKET` / `BROKER_API_SECRET_MARKET` | Jainam XTS market-data API fallback | — |
 | `COOKIE_SECURE` | Set true in production over HTTPS | `false` |
 | `SESSION_EXPIRY_TIME` | Daily session expiry IST | `03:00` |
 | `WEBSOCKET_HOST` / `WEBSOCKET_PORT` | WS proxy bind | `127.0.0.1:8765` |
@@ -322,7 +324,7 @@ cd frontend && npm run build && cd ..
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-FastAPI serves `frontend/dist/` automatically. The WebSocket proxy starts alongside on port 8765. Behind nginx, proxy `/auth`, `/web`, `/upstox`, `/zerodha`, `/api`, `/health`, `/ws` to the backend (`install/install.sh` does this for you).
+FastAPI serves `frontend/dist/` automatically. The WebSocket proxy starts alongside on port 8765. Behind nginx, proxy `/auth`, `/web`, `/upstox`, `/zerodha`, `/fyers`, `/dhan`, `/angel`, `/jainamxts`, `/api`, `/health`, `/ws` to the backend (`install/install.sh` does this for you).
 
 ## Documentation
 

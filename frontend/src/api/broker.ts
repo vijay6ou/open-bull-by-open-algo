@@ -24,6 +24,8 @@ export async function saveBrokerCredentials(data: BrokerConfigData): Promise<Bro
     api_secret: data.api_secret,
     redirect_url: data.redirect_url,
     client_id: data.client_id ?? null,
+    api_key_market: data.api_key_market ?? null,
+    api_secret_market: data.api_secret_market ?? null,
   });
   return response.data;
 }
@@ -37,5 +39,10 @@ export async function getBrokerRedirectUrl(broker: string): Promise<BrokerRedire
 
 export async function angelLogin(payload: AngelLoginPayload): Promise<{ status: string; broker: string }> {
   const response = await api.post<{ status: string; broker: string }>("/angel/login", payload);
+  return response.data;
+}
+
+export async function jainamxtsLogin(): Promise<{ status: string; broker: string }> {
+  const response = await api.post<{ status: string; broker: string }>("/jainamxts/login");
   return response.data;
 }

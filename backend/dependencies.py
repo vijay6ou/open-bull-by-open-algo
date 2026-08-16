@@ -117,6 +117,29 @@ class BrokerContext:
         self.broker_config = broker_config
 
 
+def _decrypt_maybe(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        return decrypt_value(value)
+    except Exception:
+        return value
+
+
+def _broker_config_dict(broker_cfg: BrokerConfig | None) -> dict:
+    if not broker_cfg:
+        return {}
+    extra = broker_cfg.extra_config or {}
+    return {
+        "api_key": decrypt_value(broker_cfg.api_key),
+        "api_secret": decrypt_value(broker_cfg.api_secret) if broker_cfg.api_secret else "",
+        "redirect_url": broker_cfg.redirect_url,
+        "client_id": extra.get("client_id", ""),
+        "api_key_market": _decrypt_maybe(extra.get("api_key_market")),
+        "api_secret_market": _decrypt_maybe(extra.get("api_secret_market")),
+    }
+
+
 async def get_broker_context(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -171,13 +194,7 @@ async def get_broker_context(
         )
     )
     broker_cfg = result.scalar_one_or_none()
-    config = {}
-    if broker_cfg:
-        config = {
-            "api_key": decrypt_value(broker_cfg.api_key),
-            "api_secret": decrypt_value(broker_cfg.api_secret),
-            "redirect_url": broker_cfg.redirect_url,
-        }
+    config = _broker_config_dict(broker_cfg)
 
     await cache_set_json(
         _key_broker_ctx(user.id),
@@ -263,13 +280,7 @@ async def get_api_user(
         )
     )
     broker_cfg = result.scalar_one_or_none()
-    config = {}
-    if broker_cfg:
-        config = {
-            "api_key": decrypt_value(broker_cfg.api_key),
-            "api_secret": decrypt_value(broker_cfg.api_secret),
-            "redirect_url": broker_cfg.redirect_url,
-        }
+    config = _broker_config_dict(broker_cfg)
 
     await cache_set_json(
         _key_api_ctx(user_id),

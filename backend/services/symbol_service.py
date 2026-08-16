@@ -30,6 +30,8 @@ def download_master_contracts(broker_name: str, auth_token: str | None = None) -
     try:
         if broker_name == "zerodha":
             return module.master_contract_download(auth_token=auth_token)
+        if broker_name == "jainamxts":
+            return module.master_contract_download(auth_token=auth_token)
         else:
             return module.master_contract_download()
     except Exception as e:

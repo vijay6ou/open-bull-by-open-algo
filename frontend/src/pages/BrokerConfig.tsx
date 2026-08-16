@@ -18,6 +18,11 @@ type BrokerHelp = {
   showApiSecret: boolean;
   showRedirect: boolean;
   showClientId: boolean;
+  showMarketKeys?: boolean;
+  marketKeyLabel?: string;
+  marketKeyHint?: string;
+  marketSecretLabel?: string;
+  marketSecretHint?: string;
   clientIdLabel?: string;
   clientIdHint?: string;
   banner?: string;
@@ -77,6 +82,23 @@ const HELP_BY_BROKER: Record<string, BrokerHelp> = {
     banner:
       "Angel One does not use OAuth. After saving the API Key, click Login with Angel One on the broker page and enter your Client Code, MPIN and TOTP.",
   },
+  jainamxts: {
+    apiKeyLabel: "Order API Key (appKey)",
+    apiKeyHint: "Interactive / order API appKey from the Jainam XTS dealer portal (same as OpenAlgo BROKER_API_KEY).",
+    apiSecretLabel: "Order API Secret (secretKey)",
+    apiSecretHint: "Interactive / order API secretKey (same as OpenAlgo BROKER_API_SECRET).",
+    redirectHint: "",
+    showApiSecret: true,
+    showRedirect: false,
+    showClientId: false,
+    showMarketKeys: true,
+    marketKeyLabel: "Market Data API Key (appKey)",
+    marketKeyHint: "Market-data API appKey (same as OpenAlgo BROKER_API_KEY_MARKET).",
+    marketSecretLabel: "Market Data API Secret (secretKey)",
+    marketSecretHint: "Market-data API secretKey (same as OpenAlgo BROKER_API_SECRET_MARKET).",
+    banner:
+      "Jainam XTS uses dealer login (no OAuth). Enter the same four keys as OpenAlgo / Apex Fo: Order appKey+secret and Market Data appKey+secret. If those are already in .env as BROKER_API_KEY*, you can save with the fields blank and click Login.",
+  },
 };
 
 export default function BrokerConfig() {
@@ -85,6 +107,8 @@ export default function BrokerConfig() {
   const [apiSecret, setApiSecret] = useState("");
   const [redirectUrl, setRedirectUrl] = useState("");
   const [clientId, setClientId] = useState("");
+  const [apiKeyMarket, setApiKeyMarket] = useState("");
+  const [apiSecretMarket, setApiSecretMarket] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const queryClient = useQueryClient();
@@ -109,12 +133,16 @@ export default function BrokerConfig() {
         setApiSecret(creds.api_secret || "");
         setRedirectUrl(creds.redirect_url || "");
         setClientId(creds.client_id || "");
+        setApiKeyMarket("");
+        setApiSecretMarket("");
       })
       .catch(() => {
         setApiKey("");
         setApiSecret("");
         setRedirectUrl("");
         setClientId("");
+        setApiKeyMarket("");
+        setApiSecretMarket("");
       });
   }, [selectedBroker]);
 
@@ -155,6 +183,8 @@ export default function BrokerConfig() {
       api_secret: help.showApiSecret ? apiSecret : "",
       redirect_url: help.showRedirect ? redirectUrl : "",
       client_id: help.showClientId ? clientId.trim() : undefined,
+      api_key_market: help.showMarketKeys ? apiKeyMarket : undefined,
+      api_secret_market: help.showMarketKeys ? apiSecretMarket : undefined,
     });
   };
 
@@ -258,7 +288,7 @@ export default function BrokerConfig() {
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={isConfigured ? "Leave blank to keep saved value" : `Enter ${help.apiKeyLabel}`}
-                    required={!isConfigured}
+                    required={!isConfigured && !help.showMarketKeys}
                   />
                   <p className="text-xs text-muted-foreground">
                     {help.apiKeyHint}
@@ -275,13 +305,46 @@ export default function BrokerConfig() {
                       value={apiSecret}
                       onChange={(e) => setApiSecret(e.target.value)}
                       placeholder={isConfigured ? "Leave blank to keep saved value" : `Enter ${help.apiSecretLabel}`}
-                      required={!isConfigured}
+                      required={!isConfigured && !help.showMarketKeys}
                     />
                     <p className="text-xs text-muted-foreground">
                       {help.apiSecretHint}
                       {isConfigured ? ` ${keepHint}` : ""}
                     </p>
                   </div>
+                )}
+
+                {help.showMarketKeys && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="api-key-market">{help.marketKeyLabel}</Label>
+                      <Input
+                        id="api-key-market"
+                        type="text"
+                        value={apiKeyMarket}
+                        onChange={(e) => setApiKeyMarket(e.target.value)}
+                        placeholder={isConfigured ? "Leave blank to keep saved value" : `Enter ${help.marketKeyLabel}`}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {help.marketKeyHint}
+                        {isConfigured ? ` ${keepHint}` : ""}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="api-secret-market">{help.marketSecretLabel}</Label>
+                      <Input
+                        id="api-secret-market"
+                        type="password"
+                        value={apiSecretMarket}
+                        onChange={(e) => setApiSecretMarket(e.target.value)}
+                        placeholder={isConfigured ? "Leave blank to keep saved value" : `Enter ${help.marketSecretLabel}`}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {help.marketSecretHint}
+                        {isConfigured ? ` ${keepHint}` : ""}
+                      </p>
+                    </div>
+                  </>
                 )}
 
                 {help.showRedirect && (

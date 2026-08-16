@@ -20,7 +20,20 @@ class Settings(BaseSettings):
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
 
     # Brokers
-    valid_brokers: str = "upstox,zerodha"
+    valid_brokers: str = "upstox,zerodha,angel,dhan,fyers,jainamxts"
+
+    # Jainam XTS / OpenAlgo-compatible env fallbacks (optional).
+    # Same names as OpenAlgo so a copied .env works: BROKER_API_KEY,
+    # BROKER_API_SECRET, BROKER_API_KEY_MARKET, BROKER_API_SECRET_MARKET.
+    # Per-user Broker Configuration still wins when those fields are set.
+    broker_api_key: str = ""
+    broker_api_secret: str = ""
+    broker_api_key_market: str = ""
+    broker_api_secret_market: str = ""
+    jainamxts_api_key: str = ""
+    jainamxts_api_secret: str = ""
+    jainamxts_api_key_market: str = ""
+    jainamxts_api_secret_market: str = ""
 
     # Logging
     log_level: str = "INFO"

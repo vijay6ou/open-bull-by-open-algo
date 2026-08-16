@@ -4,10 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { listBrokers, getBrokerRedirectUrl } from "@/api/broker";
+import { listBrokers, getBrokerRedirectUrl, jainamxtsLogin } from "@/api/broker";
 
 export default function BrokerSelect() {
   const [redirecting, setRedirecting] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const navigate = useNavigate();
 
   const { data: brokers, isLoading, error } = useQuery({
@@ -17,14 +18,20 @@ export default function BrokerSelect() {
 
   const handleBrokerClick = async (brokerName: string) => {
     setRedirecting(brokerName);
+    setErrorMessage("");
     try {
       const response = await getBrokerRedirectUrl(brokerName);
       if (response.kind === "internal") {
         navigate(response.url);
+      } else if (response.kind === "direct") {
+        await jainamxtsLogin();
+        navigate("/dashboard");
       } else {
         window.location.href = response.url;
       }
-    } catch {
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      setErrorMessage(axiosErr.response?.data?.detail ?? "Broker login failed. Please try again.");
       setRedirecting(null);
     }
   };
@@ -58,6 +65,11 @@ export default function BrokerSelect() {
           <p className="mt-1 text-sm text-muted-foreground">
             Choose a broker to authenticate with
           </p>
+          {errorMessage && (
+            <div className="mt-3 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {errorMessage}
+            </div>
+          )}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -84,7 +96,9 @@ export default function BrokerSelect() {
                     disabled={redirecting === broker.name}
                   >
                     {redirecting === broker.name
-                      ? "Redirecting..."
+                      ? broker.name === "jainamxts"
+                        ? "Logging in..."
+                        : "Redirecting..."
                       : "Login with " + broker.display_name}
                   </Button>
                 ) : (

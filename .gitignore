@@ -46,6 +46,9 @@ ehthumbs.db
 *.log
 logs/
 
+# Broker master-contract temp CSVs
+tmp/
+
 # Test / Coverage
 htmlcov/
 .coverage

@@ -14,11 +14,11 @@
 
 ## 1. What OpenBull Is
 
-OpenBull is an options-first trading platform that you run on your own infrastructure. It sits between a trader's tools — UIs, scripts, AI agents, third-party integrations — and the actual Indian broker APIs (Upstox, Zerodha, Angel One, Dhan, Fyers).
+OpenBull is an options-first trading platform that you run on your own infrastructure. It sits between a trader's tools — UIs, scripts, AI agents, third-party integrations — and the actual Indian broker APIs (Upstox, Zerodha, Angel One, Dhan, Fyers, Jainam XTS).
 
 It does three jobs:
 
-1. **Unifies five broker APIs** behind one consistent REST + WebSocket surface that mirrors the OpenAlgo standard. The same client code works regardless of which broker the logged-in user is connected to.
+1. **Unifies six broker APIs** behind one consistent REST + WebSocket surface that mirrors the OpenAlgo standard. The same client code works regardless of which broker the logged-in user is connected to.
 2. **Adds an options-analytics layer** on top — option chain, IV smile, vol surface, GEX, OI tracker, max-pain, straddle chart, Greeks, plus a multi-leg Strategy Builder with live P&L, payoff curves, and basket execution.
 3. **Provides a sandbox simulator** that mirrors the production order surface exactly, so the same UI and the same API drive either real broker orders or simulated fills against live ticks.
 
@@ -40,7 +40,7 @@ OpenBull is not a SaaS. There is no central cloud component. You own your data, 
 
 ## 3. Capability Matrix
 
-### 3.1 Broker coverage (5 plugins, all production-grade)
+### 3.1 Broker coverage (6 plugins, all production-grade)
 
 | Broker | Auth flow | Streaming protocol | Master contract | REST |
 |---|---|---|---|---|
@@ -49,12 +49,13 @@ OpenBull is not a SaaS. There is no central cloud component. You own your data, 
 | **Angel One** | Credentials + TOTP | SmartStream binary | Auto-download | Full |
 | **Dhan** | Static access token | Dhan binary | Auto-download | Full |
 | **Fyers** | OAuth (`auth_code`) | HSM binary (fyers v3) | Auto-download | Full |
+| **Jainam XTS** | Dealer login (Order + Market API keys) | Socket.IO (`xts-binary-packet`) | Auto-download | Full (margin calculator 501) |
 
-Each broker is a self-contained plugin under `backend/broker/{name}/` — auth, orders, funds, data, margin, master-contract download, and a WebSocket adapter. Adding a sixth broker is one folder plus a `plugin.json`. See [docs/design/broker-integration.md](design/broker-integration.md).
+Each broker is a self-contained plugin under `backend/broker/{name}/` — auth, orders, funds, data, margin, master-contract download, and a WebSocket adapter. Adding another broker is one folder plus a `plugin.json`. See [docs/design/broker-integration.md](design/broker-integration.md).
 
 ### 3.2 External API (`/api/v1/*`)
 
-API-key authenticated. Identical shape across all five brokers. Built for OpenAlgo SDK / script compatibility.
+API-key authenticated. Identical shape across all six brokers. Built for OpenAlgo SDK / script compatibility.
 
 | Group | Endpoints |
 |---|---|
@@ -352,7 +353,7 @@ What makes OpenBull specifically interesting versus rolling your own or using a 
 4. **Live + simulated coexist in one app.** A topbar flick switches the whole surface; no second deployment, no separate URL.
 5. **Options-first.** Strategy Builder + Portfolio is not bolted on — it shares the same chain service, the same Greeks math, the same margin endpoint as the rest of the platform.
 6. **Honest math.** Black-76 lives in both Python (source of truth) and TypeScript (instant What-if feedback). The two implementations are tested to agree at zero-shift.
-7. **Plug-and-play brokers.** Five plugins shipped. Adding a sixth is one folder.
+7. **Plug-and-play brokers.** Six plugins shipped. Adding another is one folder.
 8. **Production-grade ops baked in.** Sensitive-data redaction, bounded log tables, request-id correlation, rate limits, idempotent migrations, catch-up-on-restart — these aren't roadmap items, they're already there.
 
 ---

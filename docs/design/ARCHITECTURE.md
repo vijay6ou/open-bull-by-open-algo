@@ -476,7 +476,7 @@ MAX_WEBSOCKET_CONNECTIONS
 ENABLE_CONNECTION_POOLING
 
 # Brokers
-VALID_BROKERS                      # "upstox,zerodha"
+VALID_BROKERS                      # "upstox,zerodha,angel,dhan,fyers,jainamxts"
 
 # Logging
 LOG_LEVEL / LOG_TO_FILE / LOG_DIR / LOG_COLORS

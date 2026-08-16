@@ -9,6 +9,8 @@ class BrokerConfigCreate(BaseModel):
     api_secret: str
     redirect_url: str
     client_id: Optional[str] = None
+    api_key_market: Optional[str] = None
+    api_secret_market: Optional[str] = None
 
 
 class BrokerConfigResponse(BaseModel):
@@ -18,6 +20,8 @@ class BrokerConfigResponse(BaseModel):
     redirect_url: str
     is_active: bool
     client_id: Optional[str] = None
+    api_key_market_masked: Optional[str] = None
+    api_secret_market_masked: Optional[str] = None
 
 
 class BrokerListItem(BaseModel):

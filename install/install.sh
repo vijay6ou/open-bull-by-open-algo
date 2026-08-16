@@ -398,7 +398,7 @@ FLASK_DEBUG = "false"
 CORS_ORIGINS = "https://$DOMAIN"
 
 # ---- Brokers ----
-VALID_BROKERS = "upstox,zerodha"
+VALID_BROKERS = "upstox,zerodha,angel,dhan,fyers,jainamxts"
 
 # ---- Logging ----
 # App-level rotating files land under LOG_DIR alongside systemd's
@@ -851,12 +851,16 @@ server {
     #   /api       (/api/v1/* trading API)
     #   /upstox    (/upstox/callback OAuth)
     #   /zerodha   (/zerodha/callback OAuth)
+    #   /fyers     (/fyers/callback OAuth)
+    #   /dhan      (/dhan/callback OAuth)
+    #   /angel     (/angel/login credentials)
+    #   /jainamxts (/jainamxts/login dealer session)
     #   /docs, /redoc, /openapi.json  (FastAPI Swagger)
     #
     # If a new top-level router prefix is added in backend/, append it
     # to the regex below or /auth/web/api traffic will 404 to the SPA.
     # ------------------------------------------------------------------
-    location ~ ^/(auth|web|api|upstox|zerodha|docs|redoc|openapi\.json)(/|\$) {
+    location ~ ^/(auth|web|api|upstox|zerodha|fyers|dhan|angel|jainamxts|docs|redoc|openapi\.json)(/|\$) {
         proxy_pass http://openbull_backend;
         proxy_http_version 1.1;
         proxy_read_timeout 300s;

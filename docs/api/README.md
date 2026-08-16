@@ -174,7 +174,7 @@ Cookie-authed endpoints used by the SPA. Not key-authed; not part of the OpenAlg
 
 ## Supported Brokers
 
-All five broker plugins ship REST + streaming, with auth, orders, funds, history, depth, margin, and a WebSocket adapter feeding the unified WS proxy.
+All six broker plugins ship REST + streaming, with auth, orders, funds, history, depth, margin, and a WebSocket adapter feeding the unified WS proxy.
 
 | Broker | Auth flow | Streaming protocol |
 |--------|-----------|---------------------|

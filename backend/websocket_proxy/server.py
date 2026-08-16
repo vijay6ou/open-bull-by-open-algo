@@ -74,6 +74,9 @@ def _create_adapter(broker_name: str, auth_token: str, config: dict) -> BaseBrok
     elif broker_name == "angel":
         from backend.broker.angel.streaming.angel_adapter import AngelAdapter
         return AngelAdapter(auth_token, config)
+    elif broker_name == "jainamxts":
+        from backend.broker.jainamxts.streaming.jainamxts_adapter import JainamXTSAdapter
+        return JainamXTSAdapter(auth_token, config)
     raise ValueError(f"No streaming adapter for broker: {broker_name}")
 
 

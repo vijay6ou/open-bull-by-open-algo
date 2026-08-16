@@ -13,6 +13,8 @@ export interface BrokerConfigData {
   api_secret: string;
   redirect_url: string;
   client_id?: string;
+  api_key_market?: string;
+  api_secret_market?: string;
 }
 
 export interface BrokerConfigResponse {
@@ -22,7 +24,7 @@ export interface BrokerConfigResponse {
 
 export interface BrokerRedirectResponse {
   url: string;
-  kind?: "internal" | "external";
+  kind?: "internal" | "external" | "direct";
 }
 
 export interface AngelLoginPayload {
