@@ -1,0 +1,272 @@
+# Signal-Mode Strategies — Design
+
+**Status:** v1 shipped — all 10 slices on `main` (local-only commits per build instruction)
+**Owner:** rajandran
+**Coexists with:** the batch-mode strategy module (`docs/plan/strategy-module.md`)
+**Initiated:** 2026-05-13
+**Operator playbook:** [`docs/design/signal-webhook-examples.md`](../design/signal-webhook-examples.md)
+**Deferred-v2 items:** fill propagation (per-leg SL/Target/Trail), opposite-direction signal flip
+
+---
+
+## 1. Why
+
+The v1 strategy module is **batch-mode**: a single `start` fires every leg's entry as one transaction, and a single `stop` exits everything. That fits multi-leg options spreads (iron condors, strangles, etc.) where you want all legs alive together.
+
+It does NOT fit TradingView-driven equity trading, where:
+- An alert fires one signal at a time (`Long Entry`, `Long Exit`, `Short Entry`, `Short Exit`).
+- A strategy may hold positions in multiple unrelated symbols (a 5-stock portfolio).
+- The user wants raw share quantity, not "lots × lotsize".
+- The user wants per-direction control (long-only intraday, short-only intraday, or both).
+
+Signal mode is a new strategy kind alongside batch mode — same DB tables, same engine machinery for state/orders/recovery, but a different webhook protocol and a different leg shape.
+
+---
+
+## 2. Confirmed design decisions (from user, 2026-05-13)
+
+| Decision | Choice |
+|---|---|
+| Coexistence | **Coexist** — new `strategy_kind` column (`"batch"` default, `"signal"` opt-in). Existing strategies untouched. |
+| Leg shape | **One leg per symbol** — each leg is `{ symbol, exchange, side, qty }`. Webhook signal targets a specific `leg_id`. |
+| Mismatched signal | **Silent no-op** — `long_exit` on a flat leg returns `200 {status:"ok", note:"no_matching_position"}` and writes one `sm_webhook_event` row. |
+
+---
+
+## 3. Data model deltas
+
+### 3.1 `sm_strategy` (additive only — batch rows unchanged)
+
+| New column | Type | Notes |
+|---|---|---|
+| `strategy_kind` | `text` not null default `'batch'` | `'batch'` | `'signal'` |
+| `direction` | `text` not null default `'both'` | `'long_only'` / `'short_only'` / `'both'` — gates incoming signals for signal-mode strategies; ignored for batch |
+
+Batch-mode rows get `strategy_kind='batch'` via the DB default — no migration of data, no UI change.
+
+### 3.2 Per-leg shape (in the `legs` jsonb)
+
+**Batch mode** keeps its existing shape (see `strategy-module.md` §4.1.1).
+
+**Signal mode** uses:
+
+```jsonc
+{
+  "id": 1,
+  "symbol": "RELIANCE",
+  "exchange": "NSE",
+  "side": "long" | "short" | "both",      // which signals can hit this leg
+  "qty": 100,                              // raw shares for cash; lot-multiple for FUT
+  "segment": "cash" | "futures",           // no options in signal mode v1
+  "expiry": "current" | "next" | null,     // only when segment=futures
+  "target_pts": null,
+  "sl_pts": null,
+  "trail": {"x": 0, "y": 0}
+}
+```
+
+Notes:
+- `qty` is the **absolute** quantity sent to the broker (or sandbox). The lotsize multiplier is a UX detail for the wizard, not a runtime field.
+- `option_type`, `strike_mode`, `atm_offset`, `strike_value` are **not used** in signal mode. Multi-leg option spreads stay in batch mode.
+- `side: "both"` means the leg accepts both `long_*` and `short_*` signals (typical for intraday equity). `"long"` or `"short"` legs reject the wrong-side signals.
+
+---
+
+## 4. Webhook protocol — signal mode
+
+Endpoint stays the same: `POST /webhook/strategy/{token}`. The body changes.
+
+### 4.1 Payload shape
+
+```json
+{
+  "action": "long_entry" | "long_exit" | "short_entry" | "short_exit",
+  "leg_id": 1
+}
+```
+
+OR, fall back to symbol lookup (resolved server-side to a leg by `(symbol, exchange)`):
+
+```json
+{
+  "action": "long_entry",
+  "symbol": "RELIANCE",
+  "exchange": "NSE"
+}
+```
+
+If both `leg_id` and `symbol` are present, `leg_id` wins.
+
+### 4.2 Action validation
+
+| Strategy `strategy_kind` | Allowed actions |
+|---|---|
+| `batch` | `start`, `stop` only — the four signal actions return `400 rejected_invalid_action` |
+| `signal` | `long_entry`, `long_exit`, `short_entry`, `short_exit` only — `start`/`stop` return `400 rejected_invalid_action` |
+
+The router is the same; the action validator branches on `strategy.strategy_kind`.
+
+### 4.3 Direction gate
+
+Before dispatch, check `strategy.direction`:
+
+| `direction` | Allowed entry signals | Allowed exit signals |
+|---|---|---|
+| `long_only` | `long_entry` | `long_exit` |
+| `short_only` | `short_entry` | `short_exit` |
+| `both` | both entry actions | both exit actions |
+
+Rejected by direction → `403 rejected_direction_blocked`, with a clear message.
+
+### 4.4 Mismatched-signal silent no-op
+
+For `*_exit` actions, after resolving the leg, check its current state in Redis:
+
+| Signal | Leg state in Redis | Outcome |
+|---|---|---|
+| `long_exit` | open long | proceed: place SELL exit order |
+| `long_exit` | flat, short, or rejected entry | **silent no-op** — record event, return `200 {status:"ok", note:"no_matching_position"}` |
+| `short_exit` | open short | proceed: place BUY-to-cover exit order |
+| `short_exit` | flat, long, or rejected | silent no-op |
+
+For `*_entry` actions, check if the leg is **already** in the requested direction:
+
+| Signal | Leg state | Outcome |
+|---|---|---|
+| `long_entry` | flat | proceed |
+| `long_entry` | already long | **silent no-op** — `note: "already_long"` |
+| `long_entry` | currently short | **two-step**: square the short first, then open long (single atomic dispatch from engine's perspective) |
+| (mirrored for short_entry) | | |
+
+The two-step flip is only when `direction="both"` and the leg's `side="both"`. If the leg's `side="long"`, a `short_entry` signal is rejected by `side`, not by leg state.
+
+---
+
+## 5. Engine surface
+
+### 5.1 New entry points
+
+```
+async def enter_leg(strategy, leg_id, side, mode, broker, auth_token, config):
+    # idempotent if already in the requested side
+    # auto-flips if opposite side and configuration allows
+    # respects strategy.direction
+    # places one entry order, records sm_strategy_order(kind="entry"),
+    # marks leg.status="open" + leg.side in Redis state
+
+async def exit_leg_by_signal(strategy, leg_id, side, ...):
+    # silent no-op if leg isn't in the requested side
+    # places one exit order, records sm_strategy_order(kind="exit_signal"),
+    # marks leg.status="closed" in Redis state
+```
+
+These replace `engine.start_run` / `engine.stop_run` for signal-mode strategies. Batch mode keeps its existing API.
+
+### 5.2 Lifecycle differences
+
+| | Batch | Signal |
+|---|---|---|
+| Run row | one per `start` → `stop` cycle | **one per strategy day** — created on first signal of the trading day, finalized at EOD or auto-stop time |
+| `current_run_id` | set on start, cleared on stop | set on first signal, cleared at auto-stop or manual close-all |
+| Legs at run start | every leg's entry placed in one batch | legs are **inactive** until a signal opens them |
+| Order kinds | `entry`, `exit_sl`, `exit_target`, `exit_close_all`, etc. | adds `exit_signal` |
+| Auto-exit at `exit_time` | square all legs | square all open legs (same effect, different trigger language) |
+
+### 5.3 Intraday window enforcement
+
+For `strategy_type="intraday"`:
+- Before `entry_time` IST: signal-mode `*_entry` actions return `200 {status:"ok", note:"outside_entry_window"}`. Exit signals proceed normally.
+- After `exit_time` IST: all signals return `200 {status:"ok", note:"outside_trading_window"}`. The scheduler's auto-exit job runs at `exit_time` and closes any still-open legs.
+
+For `strategy_type="positional"`: no window check.
+
+### 5.4 Per-leg risk (SL / Target / Trail) in signal mode
+
+Same machinery as batch mode — the tick processor runs `risk_evaluator.evaluate_leg` per open leg. Triggered exits use `kind="exit_sl"` / `exit_target` / `exit_trail`. The leg's `side` informs the SL direction (long leg → SL below entry, short leg → SL above entry).
+
+---
+
+## 6. Frontend layout
+
+### 6.1 Wizard — kind picker
+
+At the top of `/strategy/new`, above the universe tabs:
+
+```
+Strategy kind: [ Multi-leg (batch) ] [ Signal-driven (TradingView) ]
+```
+
+When `signal` is picked:
+- Universe tabs reduced to: Stocks – Cash / F&O, Commodities (MCX). Options tabs hidden (signal mode doesn't do option spreads).
+- "Underlying" picker hidden — each leg has its own symbol.
+- A multi-symbol leg builder replaces the current per-underlying leg builder. Each leg row: symbol search, exchange (auto-resolved), side (long / short / both), qty.
+- New "Direction" radio: Long Only / Short Only / Both.
+- Webhook tab preview shows the four-action curl examples.
+
+### 6.2 Detail page — kind-aware
+
+- Header badge: `Signal mode` next to the mode (sandbox/live) badge.
+- Setup tab: renders the multi-symbol leg table instead of the option-spread table.
+- Webhook tab: payload example uses `long_entry` / `long_exit` / etc. plus a leg-id reference.
+- Live tab: per-leg states reflect the dynamic open/close that signals drive — leg can be `flat` (configured, never opened), `open` (entry filled), `closed` (entry+exit filled).
+
+---
+
+## 7. Out of scope for this build
+
+- Option-spread signal strategies (mixing signal mode with option legs)
+- Backtesting
+- Per-signal position sizing (qty stays fixed per leg)
+- Pyramiding (multiple stacked entries on the same leg without exit in between)
+- Net-position reconciliation across strategies for the same symbol
+
+---
+
+## 8. Build status
+
+| # | Slice | Commit | Status |
+|---|---|---|---|
+| 1 | Design doc | `d6d8909` | done |
+| 2 | Backend schema + migration + Pydantic | `e6c6191` | done |
+| 3 | Webhook handler — signal actions + leg lookup | `95a1899` | done |
+| 4 | Engine — `enter_leg` / `exit_leg_by_signal` | `a8d6b90` | done |
+| 5 | Engine — direction gating | `dc2e204` | done |
+| 6 | Engine — intraday window enforcement | `622512c` | done |
+| 7 | Frontend types | `e3f1aa2` | done |
+| 8 | Frontend wizard — kind toggle + signal-mode leg builder | `badf2c1` | done |
+| 9 | Frontend detail — kind-aware Setup tab + webhook examples | `a8eab0a` | done |
+| 10 | E2E sanity — curl examples, sandbox dispatch verified | (this commit) | done |
+
+---
+
+## 9. Open questions — all resolved
+
+All slice-driven questions have been answered. Items marked
+**DEFERRED-V2** are intentionally out of scope for v1 and tracked
+elsewhere (commit messages, separate design doc) for future work.
+
+- **Multi-symbol intraday auto-exit** — RESOLVED in slice 6. Sequential. Rationale: preserves audit ordering (each exit's `leg_exit_placed` event lands before the next exit fires), keeps the broker-side request rate under the typical 10/sec cap even with 10 legs, and lets one leg's failure surface in the log adjacent to the right leg rather than collated across N concurrent attempts. The ~50-200ms slowdown per leg is irrelevant at end-of-day when the market window is already over. Implementation: `engine.signal_auto_square` loops legs and awaits `exit_leg_by_signal` per leg, re-acquiring the row lock between iterations (each `exit_leg_by_signal` commits a transaction and releases the lock).
+
+- **Sandbox mode and per-leg symbol** — RESOLVED in slice 8 + slice 10. Wizard validation enforces non-empty symbol/exchange/qty at form-submit time (slice 8). Per-symbol existence in `symtoken` is **deferred to runtime** — the first signal targeting an unknown symbol gets a clean rejection from `sandbox_service.place_order` (or the broker plugin for live mode), which the engine surfaces as `outcome="rejected"` with the broker's reject reason. Adding a symtoken pre-check at strategy-create time was considered but deferred: it would block the create path on a `symtoken` lookup, and the same validation lives on the order-placement path where it actually matters. Cost of the deferred check: one wasted signal per typo, audit-logged with the broker's reject reason.
+
+- **Fill-propagation gap** — DEFERRED-V2. The iteration-9 batch-mode audit finding (entry_avg never populated, so SL/Target/Trail never fire) applies to signal mode too. Slice 4 ships with the same limitation: signal-mode legs will have `entry_avg=None` after the entry order, so any configured per-leg SL/Target/Trail will not fire. **For v1, signal mode is expected to be driven exclusively by user-fired exit signals** (long_exit, short_exit). The SL/Target/Trail fields on signal-mode legs are accepted by the schema but inert until fill propagation lands. Closing this is a single cross-cutting feature: a sandbox/broker fill-detection mechanism that backfills `sm_strategy_order.avg_fill_price` and updates Redis state's `leg.entry_avg`. Once done, every existing per-leg risk rule (slices 4-6) starts firing for free on signal-mode legs.
+
+- **Opposite-direction signal flip** — DEFERRED-V2. Design §4.4 describes a two-step flip when a `long_entry` arrives on a short leg (side=both, direction=both): exit short, open long. Slice 4 v1 refuses this with `outcome="position_conflict"` (HTTP 409) so the operator must explicitly exit first. Implementing the atomic flip requires careful failure handling (the close fails, do we still open the new side? What if the close partially fills?) and is deferred to a follow-up slice once production usage validates the simpler two-call workflow.
+
+- **`run.webhook_event_id` stamping** — RESOLVED in slice 4 (left null intentionally). Batch-mode runs are stamped with the originating webhook event id for forensic linking. Signal-mode runs span many webhook events per day, so the FK doesn't have a natural single value. Each signal writes its own `sm_webhook_event` row and the `sm_strategy_order` row carries the run_id, so the audit chain is complete via order timestamps even without the FK.
+
+---
+
+## 10. Audit-as-you-build rules
+
+Each slice ends with a self-audit pass against the same classes of bug found in the batch-mode audit:
+
+- Hardcoded lotsize fallbacks
+- TOCTOU on state transitions (use `SELECT ... FOR UPDATE`)
+- Fill propagation
+- Time-zone slips (UTC store / IST wire / APScheduler `Asia/Kolkata`)
+- Service contract drift (use documented entry points, not raw broker plugins)
+- Silent exception swallow paths
+- Hardcoded enum strings that should reference the constants in `backend/utils/constants.py`
+
+Findings get logged inline in the commit message so the diff and the audit travel together.
