@@ -1,0 +1,25 @@
+meta {
+  name: PlaceSmartOrder
+  type: http
+  seq: 4
+}
+
+post {
+  url: http://127.0.0.1:8000/api/v1/placesmartorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+      "apikey": "",
+      "strategy": "Python",
+      "symbol": "RELIANCE",
+      "exchange": "NSE",
+      "action": "BUY",
+      "product": "CNC",
+      "pricetype": "MARKET",
+      "quantity": "1",
+      "position_size": "5"
+  }
+}

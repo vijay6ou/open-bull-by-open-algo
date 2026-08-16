@@ -1,0 +1,481 @@
+"""Pydantic request/response schemas for the strategy module CRUD API.
+
+Strict mode (``extra='forbid'``) is on every schema — unknown fields are
+rejected with 422 instead of silently dropped (Section 14.5 of the plan).
+
+Response timestamps are rendered in IST ISO 8601 via
+:func:`backend.strategy.time_utils.format_ist`.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, time
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from backend.strategy.time_utils import format_ist
+
+# ----------------------------------------------------------------------------
+# Leg / sub-objects
+# ----------------------------------------------------------------------------
+
+
+class TrailConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float = Field(0, ge=0, description="Favorable move (pts) before trail arms")
+    y: float = Field(0, ge=0, description="Trail step (pts) once armed")
+
+
+class Leg(BaseModel):
+    """One leg in a strategy.
+
+    Validation rules per the plan (Section 4.1.1) plus the signal-mode
+    extension (docs/plan/strategy-signal-mode.md):
+
+    Batch mode legs (parent ``strategy_kind="batch"``):
+      * ``segment="options"`` requires ``option_type`` and ``strike_mode``.
+      * ``strike_mode="atm"`` requires ``atm_offset``.
+      * ``strike_mode="strike"`` requires ``strike_value``.
+
+    Signal mode legs (parent ``strategy_kind="signal"``):
+      * Each leg carries its own ``symbol`` + ``exchange``.
+      * ``side`` declares which signals are accepted.
+      * ``qty`` is the absolute order quantity (lotsize already multiplied
+        for FUT; raw shares for cash).
+      * ``segment`` must be ``"cash"`` or ``"futures"`` (no options in v1).
+      * Options-only fields (``option_type``, ``strike_*``) must be unset.
+
+    ``expiry`` is optional - required only for futures (signal mode) and
+    F&O batch legs. Cash legs leave it None.
+
+    Per-kind validation is enforced at the parent StrategyCreate /
+    StrategyUpdate level so a Leg validates standalone in any context.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int = Field(..., ge=1, description="1-indexed leg number, unique within strategy")
+    segment: Literal["options", "futures", "cash"]
+    # Canonical ranks: current_week / next_week / current_month / next_month.
+    # Legacy aliases (kept so existing DB rows keep parsing): weekly = current_week,
+    # monthly = current_month, current = current_month, next = next_month.
+    # Strategy-level validator below blocks current_week/next_week/weekly on MCX.
+    expiry: Optional[Literal[
+        "current_week", "next_week", "current_month", "next_month",
+        "weekly", "monthly", "current", "next",
+    ]] = None
+    # Batch-mode lot count (multiplied by symtoken.lotsize at runtime). For
+    # signal-mode legs ``qty`` carries the absolute order quantity instead.
+    lots: int = Field(1, gt=0, le=10000)
+    position: Literal["B", "S"] = "B"
+
+    option_type: Optional[Literal["CE", "PE"]] = None
+    strike_mode: Optional[Literal["atm", "strike"]] = None
+    atm_offset: Optional[str] = Field(
+        None,
+        pattern=r"^(ATM|ATM[+-]\d+|ITM\d+|OTM\d+)$",
+        description="ATM, ATM+1, ATM-1, ITM2, OTM3, etc.",
+    )
+    strike_value: Optional[float] = Field(None, gt=0)
+
+    # --- Signal-mode fields (None for batch-mode legs) ---
+    symbol: Optional[str] = Field(None, min_length=1, max_length=50)
+    exchange: Optional[str] = Field(None, min_length=1, max_length=20)
+    side: Optional[Literal["long", "short", "both"]] = None
+    qty: Optional[int] = Field(None, gt=0, le=1_000_000)
+
+    target_pts: Optional[float] = Field(None, ge=0)
+    sl_pts: Optional[float] = Field(None, ge=0)
+    trail: TrailConfig = Field(default_factory=TrailConfig)
+
+    momentum: Optional[dict] = Field(default=None, description="v1 stub — not evaluated")
+
+    @model_validator(mode="after")
+    def _validate_segment_fields(self) -> "Leg":
+        if self.segment == "options":
+            # Options legs are batch-mode only - signal-mode rejects this at
+            # the strategy validator.
+            if self.option_type is None:
+                raise ValueError("option_type required when segment='options'")
+            if self.strike_mode is None:
+                raise ValueError("strike_mode required when segment='options'")
+            if self.strike_mode == "atm" and not self.atm_offset:
+                raise ValueError("atm_offset required when strike_mode='atm'")
+            if self.strike_mode == "strike" and self.strike_value is None:
+                raise ValueError("strike_value required when strike_mode='strike'")
+        else:
+            # Non-options legs must not carry option-only fields.
+            if self.option_type is not None:
+                raise ValueError("option_type only valid when segment='options'")
+            if self.strike_mode is not None:
+                raise ValueError("strike_mode only valid when segment='options'")
+        return self
+
+
+class LockProfitConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["lock", "lock_and_trail"]
+    if_profit_reaches: float = Field(..., gt=0)
+    lock_profit: float = Field(..., ge=0)
+    trail_step: Optional[float] = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def _trail_step_required_for_lock_and_trail(self) -> "LockProfitConfig":
+        if self.mode == "lock_and_trail" and self.trail_step is None:
+            raise ValueError("trail_step required when mode='lock_and_trail'")
+        if self.lock_profit > self.if_profit_reaches:
+            raise ValueError("lock_profit must be <= if_profit_reaches")
+        return self
+
+
+class SchedulerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    days: List[Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]] = Field(
+        default_factory=lambda: ["MON", "TUE", "WED", "THU", "FRI"]
+    )
+    start_time: str = Field("09:15", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    auto_stop_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    default_mode: Literal["live", "sandbox"] = "sandbox"
+
+
+class WebhookIpAllowlistEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cidr: str = Field(..., min_length=1, max_length=43)
+    label: Optional[str] = Field(None, max_length=100)
+
+
+# ----------------------------------------------------------------------------
+# Create / Update / Out
+# ----------------------------------------------------------------------------
+
+
+_STRATEGY_TYPE = Literal["intraday", "positional"]
+_UNIVERSE_TAB = Literal["weekly_monthly", "monthly_only", "stocks_fno", "mcx"]
+_PRODUCT = Literal["NRML", "MIS", "CNC"]
+_PRICETYPE = Literal["MARKET", "LIMIT"]
+_STRATEGY_KIND = Literal["batch", "signal"]
+_DIRECTION = Literal["long_only", "short_only", "both"]
+
+# MCX commodity contracts are monthly-only (verified from symtoken: every
+# MCX FUT/OPT row is a distinct monthly expiry). Weekly ranks are nonsense
+# there, so reject them at the schema layer instead of letting the engine
+# resolve to an unexpected contract.
+_WEEKLY_RANKS_FORBIDDEN_ON_MCX = frozenset(
+    {"current_week", "next_week", "weekly"}
+)
+
+
+def _validate_product_vs_segments(product: str, legs: List[Leg]) -> None:
+    """Enforce exchange-side product rules against the leg composition.
+
+    Rules (per Indian-exchange conventions):
+      * ``CNC``  — delivery, cash equity only. Reject if any leg is FUT/OPT.
+      * ``NRML`` — normal margin, derivatives only. Reject if any leg is cash.
+      * ``MIS``  — intraday, valid for every segment.
+    """
+    has_cash = any(leg.segment == "cash" for leg in legs)
+    has_deriv = any(leg.segment in ("futures", "options") for leg in legs)
+    if product == "CNC" and has_deriv:
+        raise ValueError(
+            "product='CNC' is delivery-only — not valid for futures or "
+            "options legs. Use 'NRML' for derivatives or 'MIS' for a mixed "
+            "intraday basket."
+        )
+    if product == "NRML" and has_cash:
+        raise ValueError(
+            "product='NRML' is a derivatives product — not valid for cash "
+            "equity legs. Use 'CNC' for delivery or 'MIS' for intraday."
+        )
+
+
+def _validate_tab_expiries(universe_tab: str, legs: List[Leg]) -> None:
+    """Cross-field validation: per-tab expiry restrictions.
+
+    Today's rule: MCX rejects weekly ranks on any leg (FUT or OPT). NSE/BSE
+    index tabs accept the full four ranks. Stocks F&O accepts monthly ranks
+    only (no weeklies for stock options/futures even on NFO/BFO).
+    """
+    if universe_tab == "mcx":
+        for leg in legs:
+            if leg.expiry in _WEEKLY_RANKS_FORBIDDEN_ON_MCX:
+                raise ValueError(
+                    f"Leg {leg.id}: MCX contracts are monthly-only — "
+                    f"'{leg.expiry}' is not a valid expiry rank for MCX. "
+                    f"Use 'current_month' or 'next_month'."
+                )
+    elif universe_tab == "stocks_fno":
+        for leg in legs:
+            if leg.expiry in ("current_week", "next_week", "weekly"):
+                raise ValueError(
+                    f"Leg {leg.id}: stock F&O contracts are monthly-only — "
+                    f"weekly ranks aren't valid on '{universe_tab}'. "
+                    f"Use 'current_month' or 'next_month'."
+                )
+
+
+def _validate_legs_for_kind(kind: str, legs: List[Leg]) -> None:
+    """Per-kind leg validation. Called from StrategyCreate and StrategyUpdate.
+
+    Batch mode: legs must NOT carry signal-mode fields (``symbol``,
+    ``exchange``, ``side``, ``qty``). Options legs are allowed.
+
+    Signal mode: each leg MUST carry ``symbol``, ``exchange``, ``side``,
+    ``qty``. ``segment`` may be ``cash``, ``futures``, or ``options``;
+    the leg's ``symbol`` carries the base underlying (e.g. NIFTY, RELIANCE,
+    CRUDEOIL) and the engine resolves the actual FUT/option contract at
+    signal time from the leg's expiry rank + option fields.
+    """
+    if kind == "signal":
+        for leg in legs:
+            if not leg.symbol:
+                raise ValueError(f"Leg {leg.id}: signal-mode legs require 'symbol'")
+            if not leg.exchange:
+                raise ValueError(f"Leg {leg.id}: signal-mode legs require 'exchange'")
+            if leg.side is None:
+                raise ValueError(
+                    f"Leg {leg.id}: signal-mode legs require 'side' "
+                    f"(long / short / both)"
+                )
+            if leg.qty is None:
+                raise ValueError(f"Leg {leg.id}: signal-mode legs require 'qty'")
+            if leg.segment == "futures" and leg.expiry not in (
+                "current", "next", "current_month", "next_month",
+            ):
+                raise ValueError(
+                    f"Leg {leg.id}: futures legs in signal mode need expiry "
+                    f"'current_month' or 'next_month' (legacy 'current'/'next' also accepted)"
+                )
+            if leg.segment == "options" and leg.expiry is None:
+                raise ValueError(
+                    f"Leg {leg.id}: options legs in signal mode need expiry "
+                    f"(current_week / next_week / current_month / next_month)"
+                )
+    else:  # batch
+        for leg in legs:
+            for field in ("symbol", "exchange", "side", "qty"):
+                if getattr(leg, field) is not None:
+                    raise ValueError(
+                        f"Leg {leg.id}: '{field}' is only valid for "
+                        f"signal-mode strategies"
+                    )
+            if leg.expiry is None and leg.segment != "cash":
+                raise ValueError(
+                    f"Leg {leg.id}: batch-mode F&O legs require 'expiry'"
+                )
+
+
+class StrategyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=200)
+    strategy_kind: _STRATEGY_KIND = "batch"
+    direction: _DIRECTION = "both"
+
+    universe_tab: _UNIVERSE_TAB
+    underlying: str = Field(..., min_length=1, max_length=50)
+    underlying_exchange: str = Field(..., min_length=1, max_length=20)
+
+    strategy_type: _STRATEGY_TYPE
+    entry_time: Optional[time] = None
+    exit_time: Optional[time] = None
+
+    product: _PRODUCT = "NRML"
+    pricetype: _PRICETYPE = "MARKET"
+
+    legs: List[Leg] = Field(..., min_length=1, max_length=10)
+
+    overall_sl_mtm: Optional[float] = Field(None, ge=0)
+    overall_target_mtm: Optional[float] = Field(None, ge=0)
+    lock_profit: Optional[LockProfitConfig] = None
+    trail_sl_to_entry: bool = False
+
+    scheduler: Optional[SchedulerConfig] = None
+
+    webhook_ip_allowlist: Optional[List[WebhookIpAllowlistEntry]] = None
+    daily_loss_limit_inr: Optional[float] = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_intraday_times(self) -> "StrategyCreate":
+        if self.strategy_type == "intraday":
+            if self.entry_time is None or self.exit_time is None:
+                raise ValueError("entry_time and exit_time required for intraday strategies")
+            if self.entry_time >= self.exit_time:
+                raise ValueError("entry_time must be before exit_time")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_legs_per_kind(self) -> "StrategyCreate":
+        _validate_legs_for_kind(self.strategy_kind, self.legs)
+        _validate_tab_expiries(self.universe_tab, self.legs)
+        _validate_product_vs_segments(self.product, self.legs)
+        return self
+
+    @field_validator("legs")
+    @classmethod
+    def _unique_leg_ids(cls, legs: List[Leg]) -> List[Leg]:
+        ids = [leg.id for leg in legs]
+        if len(set(ids)) != len(ids):
+            raise ValueError("leg ids must be unique within a strategy")
+        return legs
+
+
+class StrategyUpdate(BaseModel):
+    """Partial update — every field optional. PATCH-style.
+
+    PATCH is rejected (409) when ``status != 'stopped'`` at the router layer.
+    Mass-assignment of internal fields like ``webhook_token_hash``, ``user_id``,
+    ``status``, ``current_run_id`` is impossible because they're not in this
+    schema (Pydantic strict mode rejects them).
+
+    Note: ``strategy_kind`` cannot be changed after creation - flipping a
+    live strategy from batch to signal (or back) would invalidate the legs
+    array and the webhook payload contract. The router enforces this.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    direction: Optional[_DIRECTION] = None
+    universe_tab: Optional[_UNIVERSE_TAB] = None
+    underlying: Optional[str] = Field(None, min_length=1, max_length=50)
+    underlying_exchange: Optional[str] = Field(None, min_length=1, max_length=20)
+
+    strategy_type: Optional[_STRATEGY_TYPE] = None
+    entry_time: Optional[time] = None
+    exit_time: Optional[time] = None
+
+    product: Optional[_PRODUCT] = None
+    pricetype: Optional[_PRICETYPE] = None
+
+    legs: Optional[List[Leg]] = Field(None, min_length=1, max_length=10)
+
+    overall_sl_mtm: Optional[float] = Field(None, ge=0)
+    overall_target_mtm: Optional[float] = Field(None, ge=0)
+    lock_profit: Optional[LockProfitConfig] = None
+    trail_sl_to_entry: Optional[bool] = None
+
+    scheduler: Optional[SchedulerConfig] = None
+
+    webhook_ip_allowlist: Optional[List[WebhookIpAllowlistEntry]] = None
+    daily_loss_limit_inr: Optional[float] = Field(None, gt=0)
+
+    @field_validator("legs")
+    @classmethod
+    def _unique_leg_ids(cls, legs: Optional[List[Leg]]) -> Optional[List[Leg]]:
+        if legs is None:
+            return legs
+        ids = [leg.id for leg in legs]
+        if len(set(ids)) != len(ids):
+            raise ValueError("leg ids must be unique within a strategy")
+        return legs
+
+    @model_validator(mode="after")
+    def _validate_tab_expiries(self) -> "StrategyUpdate":
+        # Only validate when both legs and tab are being patched together;
+        # otherwise the existing strategy.universe_tab governs and the
+        # router-layer merge will re-validate. We don't have the existing
+        # tab here, so be conservative: when both are present, check.
+        if self.legs is not None and self.universe_tab is not None:
+            _validate_tab_expiries(self.universe_tab, self.legs)
+        if self.legs is not None and self.product is not None:
+            _validate_product_vs_segments(self.product, self.legs)
+        return self
+
+
+# ----------------------------------------------------------------------------
+# Output (read)
+# ----------------------------------------------------------------------------
+
+
+def _decimal_to_float(v):
+    """Pydantic serializer helper for Numeric columns coming back as Decimal."""
+    if v is None:
+        return None
+    return float(v)
+
+
+class StrategyOut(BaseModel):
+    """Detail / single-fetch response. Webhook URL is included; token is NOT."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    name: str
+    strategy_kind: str = "batch"
+    direction: str = "both"
+    universe_tab: str
+    underlying: str
+    underlying_exchange: str
+    strategy_type: str
+    entry_time: Optional[str]
+    exit_time: Optional[str]
+    product: str
+    pricetype: str
+    legs: List[Leg]
+    overall_sl_mtm: Optional[float]
+    overall_target_mtm: Optional[float]
+    lock_profit: Optional[LockProfitConfig]
+    trail_sl_to_entry: bool
+    scheduler: Optional[SchedulerConfig]
+
+    live_enabled: bool
+    webhook_url: str = Field(..., description="Public webhook URL for this strategy (token embedded)")
+    webhook_ip_allowlist: Optional[List[WebhookIpAllowlistEntry]]
+    webhook_locked: bool = False
+    daily_loss_limit_inr: Optional[float]
+
+    status: str
+    current_run_id: Optional[int]
+
+    created_at: str
+    updated_at: str
+
+
+class StrategyListItem(BaseModel):
+    """Lighter shape for list view — drops legs/scheduler/etc.
+
+    The list page in v1 still wants P&L columns (Section 3.1) but they require
+    the engine which doesn't exist yet. Phase 1 returns realized/unrealized/total
+    as 0 placeholders; Phase 6 wires them to live state.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    name: str
+    strategy_kind: str = "batch"
+    direction: str = "both"
+    universe_tab: str
+    underlying: str
+    strategy_type: str
+    status: str
+    live_enabled: bool
+    webhook_locked: bool = False
+
+    pnl_realized: float = 0.0
+    pnl_unrealized: float = 0.0
+    pnl_total: float = 0.0
+
+    created_at: str
+    updated_at: str
+
+
+class StrategyCreateResponse(BaseModel):
+    """Special response for create + rotate: includes one-time-view webhook token."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: StrategyOut
+    webhook_token: str = Field(
+        ...,
+        description=(
+            "PLAINTEXT webhook token. Shown ONCE — copy it now. "
+            "It is hashed in the DB and cannot be retrieved later."
+        ),
+    )
