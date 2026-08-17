@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { listBrokers, getBrokerRedirectUrl, jainamxtsLogin } from "@/api/broker";
-import { broadcastSession } from "@/lib/sessionSync";
+import { applyBrokerConnected, broadcastSession } from "@/lib/sessionSync";
 
 export default function BrokerSelect() {
   const [redirecting, setRedirecting] = useState<string | null>(null);
@@ -45,6 +45,7 @@ export default function BrokerSelect() {
     setErrorMessage("");
     try {
       await jainamxtsLogin();
+      applyBrokerConnected(queryClient);
       broadcastSession({ type: "broker-connected" });
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       await queryClient.invalidateQueries({ queryKey: ["broker-status"] });

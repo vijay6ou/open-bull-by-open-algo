@@ -127,7 +127,11 @@ def test_exchange_and_order_type_maps():
 
 
 def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
-    """DMA login must not send retail XTS dummy accessToken=jainamxts."""
+    """DMA login must not send retail XTS dummy accessToken=jainamxts.
+
+    Symphony may return type=True (bool) for session and market login, not
+    only type='success'.
+    """
     posted: list[tuple[str, dict]] = []
 
     class _Resp:
@@ -157,10 +161,10 @@ def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
                 return _Resp(
                     200,
                     {
-                        "type": "success",
+                        "type": True,
                         "result": {
                             "token": "int-tok",
-                            "userID": "USER1",
+                            "userID": "ITC3278A06",
                             "clientCodes": ["ITC3278"],
                             "isInvestorClient": False,
                         },
@@ -169,7 +173,7 @@ def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
             if url.endswith("/auth/login"):
                 return _Resp(
                     200,
-                    {"type": "success", "result": {"token": "feed-tok", "userID": "USER1"}},
+                    {"type": True, "result": {"token": "feed-tok", "userID": "ITC3278A06"}},
                 )
             return _Resp(404, {"type": "error", "description": url})
 
@@ -195,7 +199,7 @@ def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
         },
     )
     assert error is None
-    assert token == "int-tok:::feed-tok:::USER1:::ITC3278"
+    assert token == "int-tok:::feed-tok:::ITC3278A06:::ITC3278"
     assert posted[0][0] == "https://smpa.jainam.in:6543/hostlookup"
     assert posted[1][0] == "https://smpa.jainam.in:6543/1hostlookup/user/session"
     session_posts = [body for url, body in posted if url.endswith("/user/session")]
@@ -204,6 +208,15 @@ def test_authenticate_skips_dummy_retail_access_token(monkeypatch):
     assert session_posts[0]["uniqueKey"] == "uk-1"
     assert "accessToken" not in session_posts[0]
     assert "jtrade" not in "".join(url for url, _ in posted)
+
+
+def test_broker_status_and_disconnect_routes_registered():
+    """UI connection LED calls these; a stale backend without them 404s as connected=false."""
+    from backend.routers.broker_config import router
+
+    paths = {getattr(route, "path", None) for route in router.routes}
+    assert "/web/broker/status" in paths
+    assert "/web/broker/disconnect" in paths
 
 
 def test_strip_dealer_user_suffix():

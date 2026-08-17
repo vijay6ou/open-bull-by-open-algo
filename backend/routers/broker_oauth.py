@@ -3,12 +3,13 @@ from threading import Thread
 from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
-from backend.dependencies import get_db, get_current_user
+from backend.dependencies import get_db, get_current_user, invalidate_user_cache
 from backend.models.user import User
 from backend.models.auth import BrokerAuth
 from backend.models.broker_config import BrokerConfig
@@ -366,7 +367,9 @@ async def _finalize_broker_auth(
     try:
         broker_module = get_broker_module(broker_name, "auth_api")
         logger.info("calling authenticate_broker for %s", broker_name)
-        access_token, error = broker_module.authenticate_broker(code_or_token, config)
+        access_token, error = await run_in_threadpool(
+            broker_module.authenticate_broker, code_or_token, config
+        )
         logger.info(
             "authenticate_broker result for %s: token=%s, error=%s",
             broker_name, bool(access_token), error,
@@ -456,6 +459,8 @@ async def _finalize_broker_auth(
         "broker": broker_name,
         "jti": session_token,
     })
+    # Drop the cached broker token so dashboard/positions use the new session.
+    await invalidate_user_cache(user_id)
     return new_token, None
 
 

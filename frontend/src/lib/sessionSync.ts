@@ -104,6 +104,31 @@ export function applyBrokerDisconnected(
   queryClient.removeQueries({ queryKey: ["holdings"] });
 }
 
+export function applyBrokerConnected(
+  queryClient: QueryClient,
+  status?: Partial<BrokerConnectionStatus>,
+): void {
+  queryClient.setQueryData(["auth", "me"], (old: UserInfo | undefined) =>
+    old
+      ? { ...old, broker_authenticated: true, broker: old.broker || "jainamxts" }
+      : old,
+  );
+  queryClient.setQueryData(["broker-status"], {
+    connected: true,
+    token_valid: true,
+    broker: status?.broker || "jainamxts",
+    display_name: status?.display_name || "Jainam DMA",
+    client_id: status?.client_id ?? null,
+    user_id: status?.user_id ?? null,
+    trading_client_id: status?.trading_client_id ?? null,
+    latency_ms: status?.latency_ms ?? null,
+    error_code: null,
+    http_status: 200,
+    message: status?.message || "Connected",
+    checked_at: new Date().toISOString(),
+  });
+}
+
 export function goToLogin(): void {
   if (window.location.pathname !== "/login") {
     window.location.replace("/login");

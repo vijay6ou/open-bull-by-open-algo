@@ -104,7 +104,15 @@ async def broker_connection_status(
     except Exception:
         return ping_broker(None, broker_name)
 
-    return await run_in_threadpool(ping_broker, auth_token, broker_name, config)
+    payload = await run_in_threadpool(ping_broker, auth_token, broker_name, config)
+    logger.info(
+        "broker status %s connected=%s code=%s http=%s",
+        broker_name,
+        payload.get("connected"),
+        payload.get("error_code"),
+        payload.get("http_status"),
+    )
+    return payload
 
 
 @router.post("/disconnect")

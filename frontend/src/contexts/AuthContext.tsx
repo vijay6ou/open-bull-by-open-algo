@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe, login as loginApi, logout as logoutApi } from "@/api/auth";
 import type { UserInfo, LoginRequest } from "@/types/auth";
 import {
+  applyBrokerConnected,
   applyBrokerDisconnected,
   broadcastSession,
   clearStayOnLogin,
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (event.type === "broker-connected") {
+        applyBrokerConnected(queryClient);
         queryClient.invalidateQueries({ queryKey: ["broker-status"] });
         queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       }

@@ -134,7 +134,7 @@ def get_feed_token(config: dict | None = None) -> tuple[str | None, str | None, 
             logger.warning("Jainam DMA market-data login failed at %s: %s", url, e)
             continue
 
-        if response.status_code == 200 and data.get("type") == "success":
+        if response.status_code == 200 and xts_call_ok(data):
             result = data.get("result") or {}
             token = result.get("token")
             user_id = result.get("userID")
@@ -203,7 +203,7 @@ def authenticate_broker(code_or_token: str | None, config: dict) -> tuple[str | 
                 logger.warning("Jainam DMA session error at %s: %s", session_url, e)
                 continue
 
-            if response.status_code == 200 and result.get("type") == "success":
+            if response.status_code == 200 and xts_call_ok(result):
                 body = result.get("result") or {}
                 token = body.get("token")
                 session_user = body.get("userID") or ""
@@ -282,7 +282,7 @@ def ping_session(auth_token: str, config: dict | None = None) -> dict:
         response = client.get(
             url,
             headers={"authorization": interactive, "Content-Type": "application/json"},
-            timeout=3.0,
+            timeout=10.0,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
         payload = response.json() if response.content else {}
