@@ -1,0 +1,96 @@
+import { createContext, useContext, useCallback, useEffect } from "react";
+import type { ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getMe, login as loginApi, logout as logoutApi } from "@/api/auth";
+import type { UserInfo, LoginRequest } from "@/types/auth";
+import {
+  applyBrokerConnected,
+  applyBrokerDisconnected,
+  broadcastSession,
+  clearStayOnLogin,
+  goToLogin,
+  markStayOnLogin,
+  subscribeSession,
+} from "@/lib/sessionSync";
+
+interface AuthContextType {
+  user: UserInfo | null;
+  loading: boolean;
+  login: (data: LoginRequest) => Promise<UserInfo>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+
+  const { data: user, isLoading: loading } = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: getMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    return subscribeSession((event) => {
+      if (event.type === "logout") {
+        queryClient.clear();
+        goToLogin();
+        return;
+      }
+      if (event.type === "broker-disconnected") {
+        applyBrokerDisconnected(queryClient);
+        return;
+      }
+      if (event.type === "broker-connected") {
+        applyBrokerConnected(queryClient);
+        queryClient.invalidateQueries({ queryKey: ["broker-status"] });
+        queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      }
+    });
+  }, [queryClient]);
+
+  const login = useCallback(
+    async (data: LoginRequest): Promise<UserInfo> => {
+      await loginApi(data);
+      clearStayOnLogin();
+      const userInfo = await getMe();
+      queryClient.setQueryData(["auth", "me"], userInfo);
+      return userInfo;
+    },
+    [queryClient]
+  );
+
+  const logout = useCallback(async () => {
+    markStayOnLogin();
+    try {
+      await logoutApi();
+    } finally {
+      broadcastSession({ type: "logout" });
+      queryClient.clear();
+      goToLogin();
+    }
+  }, [queryClient]);
+
+  const refreshUser = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+  }, [queryClient]);
+
+  return (
+    <AuthContext.Provider
+      value={{ user: user ?? null, loading, login, logout, refreshUser }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextType {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+}

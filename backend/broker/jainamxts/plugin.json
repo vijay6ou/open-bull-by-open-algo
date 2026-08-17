@@ -1,0 +1,10 @@
+{
+    "name": "jainamxts",
+    "display_name": "Jainam DMA",
+    "description": "Jainam DMA / Symphony dealer (smpa.jainam.in) — hostlookup + interactive + binary market data",
+    "version": "1.0",
+    "supported_exchanges": ["NSE", "BSE", "NFO", "BFO", "CDS", "MCX", "NSE_INDEX", "BSE_INDEX"],
+    "broker_type": "IN_stock",
+    "oauth_type": "credentials",
+    "auth_url_template": ""
+}
