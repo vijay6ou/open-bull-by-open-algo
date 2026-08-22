@@ -108,11 +108,35 @@ if (-not $DbPassword) {
 
 $pgInstalled = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue
 if (-not $pgInstalled) {
-    try {
-        Install-ChocoPackage "postgresql16" "/Password:$DbPassword"
-    } catch {
-        Write-Warn "postgresql16 package failed, trying postgresql"
-        Install-ChocoPackage "postgresql" "/Password:$DbPassword"
+    Write-Warn "Chocolatey EDB installer is unreliable on some VPS images; using zip binaries"
+    $pgRoot = "C:\PostgreSQL\16"
+    $pgData = "C:\PostgreSQL\16\data"
+    if (-not (Test-Path "$pgRoot\bin\initdb.exe")) {
+        $zipUrl = "https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip"
+        $zip = Join-Path $env:TEMP "postgresql-16-binaries.zip"
+        New-Item -ItemType Directory -Force -Path "C:\PostgreSQL" | Out-Null
+        Write-Info "Downloading PostgreSQL 16 binaries"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zip
+        tar -xf $zip -C "C:\PostgreSQL"
+        if (Test-Path "C:\PostgreSQL\pgsql") {
+            Move-Item "C:\PostgreSQL\pgsql" $pgRoot
+        } elseif (-not (Test-Path "$pgRoot\bin\initdb.exe")) {
+            $found = Get-ChildItem "C:\PostgreSQL" -Recurse -Filter "initdb.exe" | Select-Object -First 1
+            if (-not $found) { throw "PostgreSQL zip extract failed" }
+            Move-Item (Split-Path (Split-Path $found.FullName)) $pgRoot
+        }
+    }
+    if (-not (Test-Path "$pgData\PG_VERSION")) {
+        $pwfile = "C:\PostgreSQL\pgpass.txt"
+        Set-Content -Path $pwfile -Value $DbPassword -Encoding ascii
+        & "$pgRoot\bin\initdb.exe" -D $pgData -U postgres -A password --pwfile=$pwfile --encoding=UTF8 --locale=C
+        if ($LASTEXITCODE -ne 0) { throw "initdb failed" }
+        Add-Content (Join-Path $pgData "pg_hba.conf") "`nhost    all    all    127.0.0.1/32    scram-sha-256"
+    }
+    $svc = Get-Service "postgresql-x64-16" -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        & "$pgRoot\bin\pg_ctl.exe" register -N "postgresql-x64-16" -D $pgData -S auto
     }
     Refresh-ProcessPath
 } else {
@@ -126,11 +150,16 @@ Get-Service -Name "postgresql*" | ForEach-Object {
 
 $psql = Get-CommandPath "psql"
 if (-not $psql) {
-    $psqlCandidates = Get-ChildItem -Path "C:\Program Files\PostgreSQL" -Recurse -Filter "psql.exe" -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty FullName
-    if ($psqlCandidates) {
-        $psql = $psqlCandidates
-        Ensure-OnPath (Split-Path $psql)
+    $searchRoots = @("C:\PostgreSQL", "C:\Program Files\PostgreSQL")
+    foreach ($root in $searchRoots) {
+        if (-not (Test-Path $root)) { continue }
+        $psqlCandidates = Get-ChildItem -Path $root -Recurse -Filter "psql.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+        if ($psqlCandidates) {
+            $psql = $psqlCandidates
+            Ensure-OnPath (Split-Path $psql)
+            break
+        }
     }
 }
 if (-not $psql) {
