@@ -187,7 +187,7 @@ if (-not (Test-Path $RedisExe)) {
     Write-Info "Downloading Redis for Windows..."
     New-Item -ItemType Directory -Force -Path $RedisRoot | Out-Null
     $zip = Join-Path $env:TEMP "redis-win.zip"
-    $url = "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-192.168.1.1.zip"
+    $url = "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip"
     Invoke-WebRequest -Uri $url -OutFile $zip
     Expand-Archive -Path $zip -DestinationPath $RedisRoot -Force
 }
