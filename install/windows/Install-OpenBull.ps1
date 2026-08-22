@@ -189,7 +189,7 @@ if (-not (Test-Path $uv)) {
 Write-Info "uv: $uv"
 
 # --------------------------------------------------------------------------
-# .env — write once, never clobber existing keys
+# .env: write once, never clobber existing keys
 # --------------------------------------------------------------------------
 Write-Step "Application .env"
 if (Test-Path $EnvPath) {
@@ -322,6 +322,6 @@ try {
 Write-Step "Install complete"
 Write-Info "Open  http://$PublicHost/"
 Write-Info "First visit: create the admin account at /setup"
-Write-Info "Updates: run Update-OpenBull.ps1 — it will not ask for keys"
+Write-Info "Updates: run Update-OpenBull.ps1 - it will not ask for keys"
 Write-Host ""
 Write-Host "Also open TCP 80 (and 22) in the VPS provider firewall."

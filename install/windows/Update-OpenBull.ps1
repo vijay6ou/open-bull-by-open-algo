@@ -1,5 +1,5 @@
 # Update OpenBull on this Windows VPS without asking for keys.
-# Existing C:\openbull\.env is backed up and restored — never overwritten.
+# Existing C:\openbull\.env is backed up and restored; never overwritten.
 #
 # Usage (elevated PowerShell):
 #   .\Update-OpenBull.ps1
@@ -45,7 +45,7 @@ if (-not $SkipGitPull) {
             if (-not $branch -or $branch -eq "HEAD") { $branch = "main" }
             git pull origin $branch
         } else {
-            Write-Warn "No .git directory — skipping pull (files were synced by remote-deploy)"
+            Write-Warn "No .git directory - skipping pull (files were synced by remote-deploy)"
         }
     } finally {
         Pop-Location
