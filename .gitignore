@@ -10,10 +10,12 @@ build/
 venv/
 *.egg
 
-# Environment
-# `.env` is committed in this personal checkout so Jainam keys travel with the repo.
+# Environment / secrets — never commit live keys
+.env
 .env.local
 .env.*.local
+install/windows/.secrets.env
+install/windows/Caddyfile
 
 # UV package manager
 .uv/

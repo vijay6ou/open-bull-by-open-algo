@@ -87,6 +87,22 @@ Visit **http://127.0.0.1:5173** (the Vite server binds to IPv4 loopback only).
 
 ## Production deployment
 
+### Windows VPS (this project's production host)
+
+`install/windows/` installs PostgreSQL, Redis, Python, Node, and Caddy as Windows services. Broker keys are written to `C:\openbull\.env` **once** and later updates never overwrite them.
+
+One-time prep and the remote deploy command: [install/windows/README.md](install/windows/README.md).
+
+```powershell
+# On the VPS, elevated PowerShell
+.\install\windows\Enable-OpenSSH.ps1
+.\install\windows\Install-OpenBull.ps1 -PublicHost YOUR_VPS_IP
+# Later updates — no keys prompted
+.\install\windows\Update-OpenBull.ps1
+```
+
+### Ubuntu
+
 `install/install.sh` is a Cloudflare-aware Ubuntu installer that sets up Postgres, Redis, nginx with A-grade security headers, systemd units, certbot, and the swap file (helpful on small VMs). Re-run `install/update.sh` to pull, run `migrate_all.py`, build the frontend, and reload services. `install/perftuning.sh` applies sensible Postgres/Redis kernel + ulimit tuning.
 
 ```bash
