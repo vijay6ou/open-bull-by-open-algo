@@ -257,7 +257,7 @@ if (Test-Path $EnvPath) {
         }
         if ($value) { Set-EnvValue $EnvPath $key $value }
     }
-    icacls $EnvPath /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+    icacls $EnvPath /inheritance:r /grant:r "SYSTEM:(R)" "Administrators:(R,W)" "${env:USERNAME}:(R,W)" | Out-Null
     Write-Info "Wrote $EnvPath once. Future updates will not touch it."
 }
 
