@@ -45,6 +45,19 @@ From an elevated PowerShell in the repo:
 
 Open `http://YOUR_VPS_IP/setup` for the first admin account.
 
+## Start / stop the whole program
+
+From an elevated Command Prompt or PowerShell on the VPS:
+
+```bat
+openbull start
+openbull stop
+openbull restart
+openbull status
+```
+
+Desktop shortcuts **OpenBull start** and **OpenBull stop** are also created.
+
 ## Services
 
 | Service           | Role                                      |

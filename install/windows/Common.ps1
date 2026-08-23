@@ -160,3 +160,79 @@ function Restart-NamedService([string]$Name) {
     }
     Write-Info "$Name is $((Get-Service $Name).Status)"
 }
+
+function Get-OpenBullServiceNames {
+    $names = @("postgresql-x64-16", "OpenBullRedis", "OpenBullBackend", "OpenBullCaddy")
+    $extra = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne "postgresql-x64-16" } |
+        Select-Object -ExpandProperty Name
+    if ($extra) { $names = @($extra) + $names }
+    return $names
+}
+
+function Start-NamedService([string]$Name) {
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        Write-Warn "Service $Name is not installed"
+        return
+    }
+    if ($svc.Status -ne "Running") {
+        Start-Service -Name $Name
+    }
+    Write-Info "$Name is $((Get-Service $Name).Status)"
+}
+
+function Stop-NamedService([string]$Name) {
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        Write-Warn "Service $Name is not installed"
+        return
+    }
+    if ($svc.Status -ne "Stopped") {
+        Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
+        $nssm = Get-NssmPath
+        if ($nssm -and $Name -like "OpenBull*") {
+            & $nssm stop $Name confirm 2>$null | Out-Null
+        }
+    }
+    Write-Info "$Name is $((Get-Service $Name).Status)"
+}
+
+function Show-OpenBullStatus {
+    Write-Host ""
+    Write-Host "OpenBull services" -ForegroundColor Cyan
+    foreach ($name in (Get-OpenBullServiceNames | Select-Object -Unique)) {
+        $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+        if (-not $svc) {
+            Write-Host ("  {0,-22} {1}" -f $name, "missing")
+        } else {
+            Write-Host ("  {0,-22} {1}" -f $name, $svc.Status)
+        }
+    }
+    Write-Host ""
+}
+
+function Install-OpenBullCommands {
+    param([string]$AppRoot = "C:\openbull")
+    $cmdSrc = Join-Path $PSScriptRoot "openbull.cmd"
+    if (-not (Test-Path $cmdSrc)) { return }
+    $targets = @(
+        (Join-Path $AppRoot "openbull.cmd"),
+        "C:\Windows\openbull.cmd"
+    )
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    if ($desktop) {
+        $targets += (Join-Path $desktop "OpenBull start.cmd")
+        $targets += (Join-Path $desktop "OpenBull stop.cmd")
+    }
+    foreach ($dest in $targets) {
+        if ($dest -like "*start.cmd") {
+            Set-Content -Path $dest -Value "@echo off`r`ncall `"$cmdSrc`" start`r`npause" -Encoding ASCII
+        } elseif ($dest -like "*stop.cmd") {
+            Set-Content -Path $dest -Value "@echo off`r`ncall `"$cmdSrc`" stop`r`npause" -Encoding ASCII
+        } else {
+            Copy-Item $cmdSrc $dest -Force
+        }
+    }
+    Write-Info "Commands installed: openbull start | openbull stop | openbull status | openbull restart"
+}

@@ -334,6 +334,7 @@ Ensure-FirewallRule -Name "OpenBull HTTPS" -Port 443
 Restart-NamedService "OpenBullRedis"
 Restart-NamedService "OpenBullBackend"
 Restart-NamedService "OpenBullCaddy"
+Install-OpenBullCommands -AppRoot $AppRoot
 
 Start-Sleep -Seconds 5
 try {

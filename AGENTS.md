@@ -34,6 +34,15 @@ Do not invent hosts or ask the user to paste passwords into chat.
 `Update-OpenBull.ps1` / `remote-deploy.sh` must never replace an existing
 `.env` on the VPS.
 
+On the Windows VPS the whole stack is controlled with:
+
+```
+openbull start
+openbull stop
+openbull restart
+openbull status
+```
+
 ### Local Cloud Agent services (Linux)
 
 - PostgreSQL: `sudo pg_ctlcluster 16 main start` when available
