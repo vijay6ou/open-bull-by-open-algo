@@ -1,7 +1,6 @@
 @echo off
 setlocal
-set "OPENBULL_SCRIPTS=C:\openbull\install\windows"
-if exist "%~dp0Start-OpenBull.ps1" set "OPENBULL_SCRIPTS=%~dp0"
+set "OPENBULL_SCRIPTS=C:\openbull\install\windows\"
 if /I "%~1"=="start"   goto :start
 if /I "%~1"=="stop"    goto :stop
 if /I "%~1"=="restart" goto :restart

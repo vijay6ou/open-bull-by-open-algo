@@ -190,12 +190,10 @@ function Stop-NamedService([string]$Name) {
     }
     if ($svc.Status -ne "Stopped") {
         Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
-        $nssm = Get-NssmPath
-        if ($nssm -and $Name -like "OpenBull*") {
-            & $nssm stop $Name confirm 2>$null | Out-Null
-        }
     }
-    Write-Info "$Name is $((Get-Service $Name).Status)"
+    Start-Sleep -Milliseconds 400
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    Write-Info "$Name is $(if ($svc) { $svc.Status } else { 'missing' })"
 }
 
 function Show-OpenBullStatus {
