@@ -213,24 +213,18 @@ function Show-OpenBullStatus {
 function Install-OpenBullCommands {
     param([string]$AppRoot = "C:\openbull")
     $cmdSrc = Join-Path $PSScriptRoot "openbull.cmd"
-    if (-not (Test-Path $cmdSrc)) { return }
-    $targets = @(
-        (Join-Path $AppRoot "openbull.cmd"),
-        "C:\Windows\openbull.cmd"
-    )
+    if (Test-Path $cmdSrc) {
+        Copy-Item $cmdSrc (Join-Path $AppRoot "openbull.cmd") -Force
+        Copy-Item $cmdSrc "C:\Windows\openbull.cmd" -Force
+    }
     $desktop = [Environment]::GetFolderPath("Desktop")
     if ($desktop) {
-        $targets += (Join-Path $desktop "OpenBull start.cmd")
-        $targets += (Join-Path $desktop "OpenBull stop.cmd")
+        Remove-Item (Join-Path $desktop "OpenBull start.cmd") -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $desktop "OpenBull stop.cmd") -Force -ErrorAction SilentlyContinue
     }
-    foreach ($dest in $targets) {
-        if ($dest -like "*start.cmd") {
-            Set-Content -Path $dest -Value "@echo off`r`ncall `"$cmdSrc`" start`r`npause" -Encoding ASCII
-        } elseif ($dest -like "*stop.cmd") {
-            Set-Content -Path $dest -Value "@echo off`r`ncall `"$cmdSrc`" stop`r`npause" -Encoding ASCII
-        } else {
-            Copy-Item $cmdSrc $dest -Force
-        }
+    $build = Join-Path $PSScriptRoot "control\Build-OpenBullControl.ps1"
+    if (Test-Path $build) {
+        & $build
+        Write-Info "OpenBull Control installed (Start Menu + Desktop)"
     }
-    Write-Info "Commands installed: openbull start | openbull stop | openbull status | openbull restart"
 }

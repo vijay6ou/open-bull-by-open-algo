@@ -34,14 +34,9 @@ Do not invent hosts or ask the user to paste passwords into chat.
 `Update-OpenBull.ps1` / `remote-deploy.sh` must never replace an existing
 `.env` on the VPS.
 
-On the Windows VPS the whole stack is controlled with:
-
-```
-openbull start
-openbull stop
-openbull restart
-openbull status
-```
+On the Windows VPS the product control surface is `C:\openbull\bin\OpenBullControl.exe`
+(Desktop + Start Menu shortcut named OpenBull). CLI `openbull start|stop` remains
+as a fallback only.
 
 ### Local Cloud Agent services (Linux)
 

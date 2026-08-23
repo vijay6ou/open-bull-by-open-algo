@@ -47,16 +47,9 @@ Open `http://YOUR_VPS_IP/setup` for the first admin account.
 
 ## Start / stop the whole program
 
-From an elevated Command Prompt or PowerShell on the VPS:
+Open **OpenBull** from the Desktop or Start Menu. It is a dark control app with live service status, Start / Stop / Restart, Open dashboard, and a tray icon. Closing the window hides it in the tray; quit from the tray menu.
 
-```bat
-openbull start
-openbull stop
-openbull restart
-openbull status
-```
-
-Desktop shortcuts **OpenBull start** and **OpenBull stop** are also created.
+Power users can still use `openbull start|stop|restart|status` from an elevated prompt.
 
 ## Services
 
