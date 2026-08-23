@@ -1,0 +1,27 @@
+{
+    auto_https off
+    admin off
+}
+
+:80 {
+    encode gzip
+
+    @backend path /auth /auth/* /web /web/* /api /api/* /upstox /upstox/* /zerodha /zerodha/* /fyers /fyers/* /dhan /dhan/* /angel /angel/* /jainamxts /jainamxts/* /docs /docs/* /redoc /redoc/* /openapi.json /health /health/*
+
+    handle @backend {
+        reverse_proxy 127.0.0.1:8000
+    }
+
+    handle /ws {
+        reverse_proxy 127.0.0.1:8765
+    }
+    handle /ws/* {
+        reverse_proxy 127.0.0.1:8765
+    }
+
+    handle {
+        root * "__FRONTEND_DIST__"
+        try_files {path} /index.html
+        file_server
+    }
+}

@@ -1,0 +1,363 @@
+"""
+Sandbox position book.
+
+Positions are updated atomically on every fill (:func:`apply_fill`). We track
+realized and unrealized PnL separately so the dashboard can show both; the
+*running average* cost is used for BUY accumulation and FIFO-style offset on
+SELL (same as most brokers report).
+
+Margin lifecycle (matches openalgo's sandbox):
+
+* New position / accumulation: the order's blocked margin transfers from
+  ``SandboxOrder.margin_blocked`` into ``SandboxPosition.margin_blocked``.
+  No fund movement — the cash is already locked, only its bookkeeping bucket
+  changes.
+* Reduce: ``offset_qty / abs(old_qty)`` of the position's margin is released
+  back to *available* together with the realized PnL on the offset, in a
+  single :func:`fund_manager.release_margin` call (atomic transaction).
+* Full close: the entire position margin is released along with realized PnL.
+* Reverse with leftover: offset portion releases pro-rata, the residual
+  position picks up whatever margin the order was carrying for the excess
+  (see ``place_order`` for the position-aware sizing).
+
+The per-user lock is held by the caller (the execution engine) for the
+duration of fill processing — see :mod:`backend.sandbox.execution_engine`.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
+
+from backend.models.sandbox import SandboxPosition, SandboxTrade
+from backend.sandbox._db import session_scope
+
+logger = logging.getLogger(__name__)
+
+# IST is fixed UTC+05:30 — same convention as catch_up.py / scheduler.py.
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _last_session_boundary() -> datetime:
+    """Return the most recent session boundary (00:00 IST today, or yesterday
+    if it's still before midnight IST)."""
+    now = datetime.now(tz=_IST)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _get_or_create(
+    db: Session, user_id: int, symbol: str, exchange: str, product: str
+) -> SandboxPosition:
+    row = db.execute(
+        select(SandboxPosition).where(
+            SandboxPosition.user_id == user_id,
+            SandboxPosition.symbol == symbol,
+            SandboxPosition.exchange == exchange,
+            SandboxPosition.product == product,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = SandboxPosition(
+            user_id=user_id, symbol=symbol, exchange=exchange, product=product
+        )
+        db.add(row)
+        db.flush()
+    return row
+
+
+def get_position_snapshot(
+    user_id: int, symbol: str, exchange: str, product: str
+) -> tuple[int, float] | None:
+    """Read-only snapshot used by ``place_order`` for position-aware margin
+    sizing. Returns ``(net_quantity, margin_blocked)`` or ``None`` if the
+    position doesn't exist / is flat."""
+    with session_scope() as db:
+        row = db.execute(
+            select(SandboxPosition.net_quantity, SandboxPosition.margin_blocked).where(
+                SandboxPosition.user_id == user_id,
+                SandboxPosition.symbol == symbol,
+                SandboxPosition.exchange == exchange,
+                SandboxPosition.product == product,
+            )
+        ).first()
+        if row is None or int(row[0]) == 0:
+            return None
+        return int(row[0]), float(row[1] or 0.0)
+
+
+def apply_fill(
+    user_id: int,
+    symbol: str,
+    exchange: str,
+    product: str,
+    action: str,
+    quantity: int,
+    price: float,
+    order_margin: float = 0.0,
+) -> tuple[float, float]:
+    """Update the position for a single fill.
+
+    Returns ``(realized_pnl, margin_to_release)``:
+      * ``realized_pnl`` — PnL booked on the offset portion of this fill (0
+        for new / accumulating positions).
+      * ``margin_to_release`` — margin that must be released from
+        ``used_margin`` back to *available*. The caller pairs this with the
+        realized PnL in a single :func:`fund_manager.release_margin` call so
+        cash and PnL move together.
+
+    For the same-direction (new / accumulate) path, the order's margin is
+    moved from the order row into the position row inside this function — the
+    return tuple is ``(0, 0)`` because nothing leaves *used_margin*.
+    """
+    action = action.upper()
+    signed_qty = quantity if action == "BUY" else -quantity
+
+    realized_delta = 0.0
+    margin_to_release = 0.0
+
+    with session_scope() as db:
+        pos = _get_or_create(db, user_id, symbol, exchange, product)
+        old_net = pos.net_quantity
+        old_avg = pos.average_price
+        old_margin = float(pos.margin_blocked or 0.0)
+
+        # ---------------------------------------------------------------
+        # Same direction (or fresh position) — accumulate, transfer margin
+        # ---------------------------------------------------------------
+        if (old_net >= 0 and signed_qty > 0) or (old_net <= 0 and signed_qty < 0):
+            new_net = old_net + signed_qty
+            new_total_cost = old_avg * abs(old_net) + price * abs(signed_qty)
+            new_avg = new_total_cost / abs(new_net) if new_net != 0 else 0.0
+            pos.net_quantity = new_net
+            pos.average_price = round(new_avg, 4)
+            # Transfer the order's blocked margin onto the position. No fund
+            # movement — `used_margin` already reflects this amount; only its
+            # bookkeeping bucket (order → position) changes.
+            pos.margin_blocked = round(old_margin + float(order_margin or 0.0), 2)
+
+        # ---------------------------------------------------------------
+        # Opposite direction — realize PnL, release margin pro-rata
+        # ---------------------------------------------------------------
+        else:
+            offset_qty = min(abs(old_net), abs(signed_qty))
+            if old_net > 0:
+                # was long, now selling → gain = (sell_price - old_avg) * qty
+                realized_delta = (price - old_avg) * offset_qty
+            else:
+                # was short, now buying → gain = (old_avg - buy_price) * qty
+                realized_delta = (old_avg - price) * offset_qty
+
+            remaining = abs(signed_qty) - offset_qty
+            new_net = old_net + signed_qty
+
+            # Pro-rata margin release for the offset portion.
+            if abs(old_net) > 0 and old_margin > 0:
+                proportion = offset_qty / float(abs(old_net))
+                margin_to_release = round(old_margin * proportion, 2)
+            else:
+                margin_to_release = 0.0
+
+            pos.net_quantity = new_net
+            if new_net == 0:
+                # Fully closed — drop average + clear the rest of the margin
+                # in case rounding left a sliver behind.
+                pos.average_price = 0.0
+                margin_to_release = round(old_margin, 2)
+                pos.margin_blocked = 0.0
+            elif remaining > 0:
+                # Reversed direction with leftover — the new (opposite-side)
+                # position is opened at ``price``. The order was sized to
+                # block margin only for the leftover (see ``place_order``
+                # position-aware logic), so order_margin == margin for the
+                # new residual position.
+                pos.average_price = round(price, 4)
+                # Old position is fully closed → release ALL of its margin.
+                margin_to_release = round(old_margin, 2)
+                pos.margin_blocked = round(float(order_margin or 0.0), 2)
+            else:
+                # Reduced but not closed — keep the residual margin on the
+                # position (= old_margin minus what we released).
+                pos.margin_blocked = round(max(0.0, old_margin - margin_to_release), 2)
+                # average_price unchanged
+
+            pos.realized_pnl = round(pos.realized_pnl + realized_delta, 4)
+            pos.today_realized_pnl = round(
+                float(pos.today_realized_pnl or 0.0) + realized_delta, 4
+            )
+
+        # ---------------------------------------------------------------
+        # Intraday + display fields
+        # ---------------------------------------------------------------
+        if action == "BUY":
+            pos.day_buy_quantity += quantity
+            pos.day_buy_value = round(pos.day_buy_value + price * quantity, 2)
+        else:
+            pos.day_sell_quantity += quantity
+            pos.day_sell_value = round(pos.day_sell_value + price * quantity, 2)
+
+        # LTP/PnL refresh will happen in mark_to_market; keep pos.pnl
+        # consistent for now so the orderbook UI shows something sensible.
+        pos.pnl = round(pos.realized_pnl + pos.unrealized_pnl, 4)
+
+    return round(realized_delta, 4), round(margin_to_release, 2)
+
+
+def mark_to_market(
+    user_id: int, symbol: str, exchange: str, product: str, ltp: float
+) -> None:
+    """Refresh ``ltp`` and unrealized PnL for a single position."""
+    if ltp <= 0:
+        return
+    with session_scope() as db:
+        pos = db.execute(
+            select(SandboxPosition).where(
+                SandboxPosition.user_id == user_id,
+                SandboxPosition.symbol == symbol,
+                SandboxPosition.exchange == exchange,
+                SandboxPosition.product == product,
+            )
+        ).scalar_one_or_none()
+        if pos is None or pos.net_quantity == 0:
+            return
+        pos.ltp = round(ltp, 4)
+        # Long: (ltp - avg) * qty. Short: (avg - ltp) * qty.
+        if pos.net_quantity > 0:
+            pos.unrealized_pnl = round((ltp - pos.average_price) * pos.net_quantity, 4)
+        else:
+            pos.unrealized_pnl = round((pos.average_price - ltp) * abs(pos.net_quantity), 4)
+        pos.pnl = round(pos.realized_pnl + pos.unrealized_pnl, 4)
+
+
+def get_positions(user_id: int) -> list[dict]:
+    """Broker-compatible position payload — shape matches the transform layer.
+
+    Auto-settles expired F&O contracts before returning, then applies a
+    session-aware filter so closed positions from previous sessions don't
+    linger on the page (mirrors openalgo's ``get_open_positions``):
+
+      * ``net_quantity != 0``                              → show open position
+      * ``net_quantity == 0`` and a SandboxTrade exists for
+        (symbol, exchange, product) since the session boundary
+                                                           → show today's flatten
+      * ``net_quantity != 0`` and product == "NRML" and
+        updated last session                                → carry-forward
+      * everything else                                     → hide
+
+    Source of truth for "traded today" is the SandboxTrade table — not
+    ``today_realized_pnl`` or ``updated_at`` on SandboxPosition. Those two
+    are easy to corrupt: ``daily_reset.reset_today_pnl()`` issues a Core
+    UPDATE which fires the ``onupdate=func.now()`` column default, bumping
+    ``updated_at`` to today even though no real activity happened. Trading
+    history doesn't have that problem — a trade row is permanent.
+
+    Read-side heal: any qty=0 position with non-zero ``today_realized_pnl``
+    that didn't trade this session has the bucket zeroed via raw SQL (so
+    ``updated_at`` stays put for diagnostics).
+    """
+    try:
+        from backend.sandbox.catch_up import _close_expired_fno_positions
+        _close_expired_fno_positions()
+    except Exception:
+        logger.exception("get_positions: expired-FnO sweep raised; continuing")
+
+    boundary = _last_session_boundary()
+
+    with session_scope() as db:
+        # 1. The set of (symbol, exchange, product) tuples that actually
+        #    fired a fill since the session boundary. SandboxTrade rows are
+        #    immutable — perfect ground truth.
+        traded_rows = db.execute(
+            select(
+                SandboxTrade.symbol,
+                SandboxTrade.exchange,
+                SandboxTrade.product,
+            )
+            .where(SandboxTrade.user_id == user_id)
+            .where(SandboxTrade.timestamp >= boundary)
+            .distinct()
+        ).all()
+        traded_today: set[tuple[str, str, str]] = {
+            (sym, exch, prod) for sym, exch, prod in traded_rows
+        }
+
+        rows = db.execute(
+            select(SandboxPosition).where(SandboxPosition.user_id == user_id)
+        ).scalars().all()
+
+        # 2. Heal stale today_realized_pnl on qty=0 rows that didn't trade
+        #    this session. Raw SQL so the heal itself doesn't bump
+        #    updated_at and confuse downstream tooling.
+        ids_to_heal = [
+            r.id
+            for r in rows
+            if r.net_quantity == 0
+            and float(r.today_realized_pnl or 0.0) != 0.0
+            and (r.symbol, r.exchange, r.product) not in traded_today
+        ]
+        if ids_to_heal:
+            from sqlalchemy import bindparam
+
+            db.execute(
+                text(
+                    "UPDATE sandbox_positions SET today_realized_pnl = 0 "
+                    "WHERE id IN :ids"
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"ids": ids_to_heal},
+            )
+            heal_set = set(ids_to_heal)
+            for r in rows:
+                if r.id in heal_set:
+                    r.today_realized_pnl = 0.0
+            logger.info(
+                "get_positions: zeroed stale today_realized_pnl on %d row(s)",
+                len(ids_to_heal),
+            )
+
+        # 3. Filter rows by trade activity (qty=0 only shows when traded
+        #    today) plus NRML carry-forward.
+        visible: list[SandboxPosition] = []
+        for r in rows:
+            if r.net_quantity != 0:
+                # Open position — always show. NRML carry-forward also
+                # lands here (qty != 0, updated_at < boundary).
+                visible.append(r)
+                continue
+            # qty == 0 — only show if there was a real trade this session.
+            if (r.symbol, r.exchange, r.product) in traded_today:
+                visible.append(r)
+
+        return [
+            {
+                "symbol": r.symbol,
+                "exchange": r.exchange,
+                "product": r.product,
+                "quantity": r.net_quantity,
+                "netqty": r.net_quantity,
+                "buyqty": r.day_buy_quantity,
+                "sellqty": r.day_sell_quantity,
+                # Closed positions (qty=0) display avg=0 / pnlpercent=0 the
+                # way Zerodha + openalgo do — the cumulative realized_pnl
+                # field still carries the historical number for callers
+                # that care.
+                "average_price": (
+                    round(r.average_price, 2) if r.net_quantity != 0 else 0.0
+                ),
+                "averageprice": (
+                    round(r.average_price, 2) if r.net_quantity != 0 else 0.0
+                ),
+                "ltp": round(r.ltp, 2),
+                "pnl": round(
+                    r.pnl if r.net_quantity != 0
+                    else float(r.today_realized_pnl or 0.0),
+                    2,
+                ),
+                "unrealized_pnl": round(r.unrealized_pnl, 2),
+                "realized_pnl": round(r.realized_pnl, 2),
+                "today_realized_pnl": round(float(r.today_realized_pnl or 0.0), 2),
+                "margin_blocked": round(float(r.margin_blocked or 0.0), 2),
+            }
+            for r in visible
+        ]
